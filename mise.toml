@@ -19,6 +19,14 @@ run = "go test ./..."
 [tasks.race]
 run = "go test -race ./..."
 
+[tasks.cover]
+description = "Race-test with coverage, excluding test helper packages"
+run = [
+    "go test -race -covermode=atomic -coverprofile=coverage.raw ./...",
+    "grep -vE 'test/[^/]+\\.go:' coverage.raw > coverage.out",
+    "rm coverage.raw",
+]
+
 [tasks.vuln]
 run = "govulncheck ./..."
 

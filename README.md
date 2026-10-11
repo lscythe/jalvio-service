@@ -1,5 +1,10 @@
 # jalvio-service
 
+[![CI](https://github.com/lscythe/jalvio-service/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lscythe/jalvio-service/actions/workflows/ci.yml)
+[![Coverage](https://coveralls.io/repos/github/lscythe/jalvio-service/badge.svg?branch=main)](https://coveralls.io/github/lscythe/jalvio-service?branch=main)
+[![Go version](https://img.shields.io/github/go-mod/go-version/lscythe/jalvio-service)](go.mod)
+[![License](https://img.shields.io/github/license/lscythe/jalvio-service)](LICENSE)
+
 Self-hosted Go backend that serves public transit data to the Jalvio app.
 
 ## Run
