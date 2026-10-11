@@ -54,6 +54,8 @@ lefthook install # git hooks: format, lint, tests, commit message
 mise run check   # format, lint, race tests, coverage gate, vulnerability scan
 ```
 
+`mise run live` checks the real upstreams named in the environment: one GTFS download, 15 s of the broker (`LIVE_MQTT_DURATION`), one stop API name search, and one Photon search (`PHOTON_URL`, `PHOTON_USER_AGENT`, `LIVE_PLACE_QUERY`). Each check skips when its settings are missing, and output is counts only. CI never runs it.
+
 ## License
 
 Apache-2.0

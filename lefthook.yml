@@ -9,7 +9,8 @@ pre-commit:
       run: mise exec -- golangci-lint run ./...
     - name: tests and coverage
       glob: "*.go"
-      exclude: ["**/testdata/**"]
+      # test/live only builds with the live tag and calls real upstreams.
+      exclude: ["**/testdata/**", "test/live/**"]
       run: |
         profile=$(mktemp)
         trap 'rm -f "$profile"' EXIT

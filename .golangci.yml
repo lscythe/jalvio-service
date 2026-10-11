@@ -1,4 +1,6 @@
 version: "2"
+run:
+  build-tags: [live]
 linters:
   default: standard
   enable:
