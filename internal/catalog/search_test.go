@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
+	"github.com/lscythe/jalvio-service/internal/geo"
 )
 
 func route(id string) catalog.Result { return catalog.Result{Kind: catalog.RouteResult, ID: id} }
@@ -12,12 +13,12 @@ func stop(id string) catalog.Result  { return catalog.Result{Kind: catalog.StopR
 
 func TestSearch(t *testing.T) {
 	c := parseFixture(t)
-	bundaranHI := &catalog.Point{Lat: -6.193, Lon: 106.823}
+	bundaranHI := &geo.Point{Lat: -6.193, Lon: 106.823}
 
 	tests := []struct {
 		name  string
 		query string
-		near  *catalog.Point
+		near  *geo.Point
 		limit int
 		want  []catalog.Result
 	}{

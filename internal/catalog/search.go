@@ -2,10 +2,11 @@ package catalog
 
 import (
 	"cmp"
-	"math"
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/lscythe/jalvio-service/internal/geo"
 )
 
 type ResultKind int
@@ -34,7 +35,7 @@ type searchEntry struct {
 	id   string
 	name string // normalized
 	code string // compacted
-	pos  Point
+	pos  geo.Point
 	sort string // tie-break: code for routes, name for stops
 }
 
@@ -51,7 +52,7 @@ func newSearchIndex(routes []Route, stops []Stop) []searchEntry {
 		}
 		name := normalize(s.Name)
 		entries = append(entries, searchEntry{
-			kind: StopResult, id: s.ID, name: name, code: compact(s.Code), pos: Point{s.Lat, s.Lon}, sort: name,
+			kind: StopResult, id: s.ID, name: name, code: compact(s.Code), pos: geo.Point{Lat: s.Lat, Lon: s.Lon}, sort: name,
 		})
 	}
 	return entries
@@ -60,7 +61,7 @@ func newSearchIndex(routes []Route, stops []Stop) []searchEntry {
 // Search ranks stations, roadside stops, and routes by name or code. Ties go
 // to stops before routes, then to the stop nearest near (when given), then
 // to stop name or route code.
-func (c *Catalog) Search(query string, near *Point, limit int) []Result {
+func (c *Catalog) Search(query string, near *geo.Point, limit int) []Result {
 	q, qc := normalize(query), compact(query)
 	if q == "" || limit <= 0 {
 		return nil
@@ -80,7 +81,7 @@ func (c *Catalog) Search(query string, near *Point, limit int) []Result {
 		}
 		h := hit{entry: e, quality: quality}
 		if near != nil && e.kind == StopResult {
-			h.distance = distance(*near, e.pos)
+			h.distance = geo.Distance(*near, e.pos)
 		}
 		hits = append(hits, h)
 	}
@@ -140,13 +141,4 @@ func normalize(s string) string {
 // compact makes codes such as "JAK.18", "jak 18", and "jak18" equal.
 func compact(s string) string {
 	return strings.ReplaceAll(normalize(s), " ", "")
-}
-
-// distance returns the great-circle distance in meters.
-func distance(a, b Point) float64 {
-	const earthRadius = 6371000
-	rad := func(deg float64) float64 { return deg * math.Pi / 180 }
-	dLat, dLon := rad(b.Lat-a.Lat), rad(b.Lon-a.Lon)
-	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(rad(a.Lat))*math.Cos(rad(b.Lat))*math.Sin(dLon/2)*math.Sin(dLon/2)
-	return 2 * earthRadius * math.Asin(math.Sqrt(h))
 }
