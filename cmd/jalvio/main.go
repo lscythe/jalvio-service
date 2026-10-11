@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/config"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
 )
@@ -20,7 +23,11 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout  = 10 * time.Second
+	feedFetchTimeout = 2 * time.Minute
+	feedRetryDelay   = time.Minute
+)
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -42,21 +49,36 @@ func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) e
 	if err != nil {
 		return err
 	}
-	return serve(ctx, ln, logger)
+	return runService(ctx, cfg, ln, logger)
 }
 
-// serve handles requests on ln until ctx is cancelled, then reports unready
-// and drains in-flight requests before returning.
-func serve(ctx context.Context, ln net.Listener, logger *slog.Logger) error {
-	var ready atomic.Bool
-	srv := &http.Server{
-		Handler:           httpapi.New(httpapi.Info{Version: version, StartedAt: time.Now().UTC()}, ready.Load),
-		ReadHeaderTimeout: 5 * time.Second,
+func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger *slog.Logger) error {
+	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+		return errors.Join(err, ln.Close())
+	}
+	fetcher := catalog.NewHTTPFetcher(&http.Client{Timeout: feedFetchTimeout}, cfg.GTFSURL, "jalvio-service/"+version)
+	catalogs := catalog.NewSource(fetcher, filepath.Join(cfg.DataDir, "gtfs.zip"), logger)
+	if err := catalogs.Load(); err != nil {
+		logger.Warn("ignoring stored feed", "error", err)
 	}
 
+	var draining atomic.Bool
+	ready := func() bool { return !draining.Load() && catalogs.Current() != nil }
+	handler := httpapi.New(httpapi.Info{Version: version, StartedAt: time.Now().UTC()}, ready, catalogs)
+
+	var workers sync.WaitGroup
+	workers.Go(func() { catalogs.Run(ctx, cfg.GTFSRefresh, feedRetryDelay) })
+	defer workers.Wait()
+
+	return serve(ctx, ln, handler, &draining, logger)
+}
+
+// serve handles requests on ln until ctx is cancelled, then sets draining and
+// finishes in-flight requests before returning.
+func serve(ctx context.Context, ln net.Listener, handler http.Handler, draining *atomic.Bool, logger *slog.Logger) error {
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
-	ready.Store(true)
 	logger.Info("listening", "addr", ln.Addr().String(), "version", version)
 
 	select {
@@ -65,7 +87,7 @@ func serve(ctx context.Context, ln net.Listener, logger *slog.Logger) error {
 	case <-ctx.Done():
 	}
 
-	ready.Store(false)
+	draining.Store(true)
 	logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
