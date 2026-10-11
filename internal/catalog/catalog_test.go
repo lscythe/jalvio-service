@@ -58,7 +58,7 @@ func TestParseRoutes(t *testing.T) {
 	for _, r := range c.Routes() {
 		codes = append(codes, r.Code)
 	}
-	if want := []string{"1", "JAK.18"}; !reflect.DeepEqual(codes, want) {
+	if want := []string{"1", "JAK.10A", "JAK.18"}; !reflect.DeepEqual(codes, want) {
 		t.Errorf("route codes = %v, want %v", codes, want)
 	}
 }
@@ -102,8 +102,8 @@ func TestParseStops(t *testing.T) {
 			t.Errorf("Stop(%s) = %+v, want %+v", tt.id, got, tt.want)
 		}
 	}
-	if n := len(c.Stops()); n != 9 {
-		t.Errorf("len(Stops) = %d, want 9", n)
+	if n := len(c.Stops()); n != 10 {
+		t.Errorf("len(Stops) = %d, want 10", n)
 	}
 }
 
