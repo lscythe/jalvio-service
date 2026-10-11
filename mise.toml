@@ -3,6 +3,7 @@ go = "1.27.2"
 "go:mvdan.cc/gofumpt" = "0.11.0"
 "go:github.com/golangci/golangci-lint/v2/cmd/golangci-lint" = "2.14.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.7.0"
+lefthook = "2.1.14"
 
 [tasks.fmt]
 run = "gofumpt -w ."
@@ -27,8 +28,13 @@ run = [
     "rm coverage.raw",
 ]
 
+[tasks.cover-check]
+description = "Require tests in every package and 80% coverage outside cmd/"
+depends = ["cover"]
+run = "go run ./cmd/covergate"
+
 [tasks.vuln]
 run = "govulncheck ./..."
 
 [tasks.check]
-depends = ["fmt-check", "lint", "race", "vuln"]
+depends = ["fmt-check", "lint", "cover-check", "vuln"]

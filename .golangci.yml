@@ -9,6 +9,11 @@ linters:
     - nilerr
     - noctx
     - usestdlibvars
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
   exclusions:
     rules:
       - path: (_test\.go|test/[^/]+\.go)$
