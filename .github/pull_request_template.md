@@ -1,10 +1,21 @@
 ## Summary
 
-<!-- What changes and why. Link the issue it closes, if any. -->
+What this PR changes and why.
 
-## Test plan
+Closes #
+
+## Changes
+
+- 
+
+## How it was tested
 
 - [ ] `mise run check` passes
 - [ ] New behaviour is covered by tests written first
+- [ ] Checked manually:
 
-<!-- Anything a reviewer should try or look at closely. -->
+## Checklist
+
+- [ ] The PR title follows [Conventional Commits](https://www.conventionalcommits.org/), because it becomes the squash commit on `main`
+- [ ] No secrets, tokens, or real environment files are included
+- [ ] README and contract files are updated if behaviour changed
