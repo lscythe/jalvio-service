@@ -14,15 +14,18 @@ mise install
 go run ./cmd/jalvio
 ```
 
-| Variable               | Default  | Purpose                                                     |
-| ---------------------- | -------- | ----------------------------------------------------------- |
-| `GTFS_URL`             | required | Static GTFS feed (zip) to load and refresh                  |
-| `GTFS_REFRESH`         | `24h`    | How often the feed is checked                               |
-| `MQTT_URL`             | empty    | Live bus feed broker (`ws://` or `wss://`); empty turns it off |
-| `MQTT_TLS_SERVER_NAME` | URL host | Name the broker certificate is verified against             |
-| `MQTT_DIAL_ADDRESS`    | empty    | `host:port` to dial instead of the URL's host               |
-| `JALVIO_LISTEN`        | `:8080`  | HTTP listen address                                         |
-| `JALVIO_DATA_DIR`      | `./data` | Stored feed, MQTT client ID, and snapshots                  |
+| Variable               | Default  | Purpose                                                         |
+| ---------------------- | -------- | --------------------------------------------------------------- |
+| `GTFS_URL`             | required | Static GTFS feed (zip) to load and refresh                      |
+| `GTFS_REFRESH`         | `24h`    | How often the feed is checked                                   |
+| `MQTT_URL`             | empty    | Live bus feed broker (`ws://` or `wss://`); empty turns it off  |
+| `MQTT_TLS_SERVER_NAME` | URL host | Name the broker certificate is verified against                 |
+| `MQTT_DIAL_ADDRESS`    | empty    | `host:port` to dial instead of the URL's host                   |
+| `STOP_API_URL`         | empty    | Stop API base URL for the facilities sync; empty turns it off   |
+| `STOP_API_APP_VERSION` | empty    | App version the stop API expects; required with `STOP_API_URL`  |
+| `STOPINFO_SYNC_AT`     | `03:00`  | Daily facilities sync time (`HH:MM`) in the local zone (`TZ`)   |
+| `JALVIO_LISTEN`        | `:8080`  | HTTP listen address                                             |
+| `JALVIO_DATA_DIR`      | `./data` | Stored feed, client and device IDs, and snapshots               |
 
 Upstream endpoints are deployment configuration and are not part of this repository.
 
@@ -31,7 +34,7 @@ Upstream endpoints are deployment configuration and are not part of this reposit
 | Path         | Response                                                            |
 | ------------ | ------------------------------------------------------------------- |
 | `/healthz`   | `204` once a catalog is loaded, `503` before that or while draining |
-| `/v1/status` | Version, start time, catalog freshness, and live feed state         |
+| `/v1/status` | Version, start time, catalog, live feed, and stop facilities state  |
 
 Errors are RFC 9457 `application/problem+json`.
 

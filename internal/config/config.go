@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -16,6 +17,11 @@ type Config struct {
 	MQTTURL         string
 	MQTTServerName  string
 	MQTTDialAddress string
+	// StopAPIURL is empty when the stop facilities sync is disabled.
+	StopAPIURL        string
+	StopAPIAppVersion string
+	// StopInfoSyncAt is the daily sync time as an offset from local midnight.
+	StopInfoSyncAt time.Duration
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -49,6 +55,22 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("MQTT_DIAL_ADDRESS: %w", err)
 		}
 	}
+
+	cfg.StopAPIURL = getenv("STOP_API_URL")
+	cfg.StopAPIAppVersion = getenv("STOP_API_APP_VERSION")
+	if cfg.StopAPIURL != "" {
+		if u, err := url.Parse(cfg.StopAPIURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return Config{}, fmt.Errorf("STOP_API_URL: %q is not an http(s) URL", cfg.StopAPIURL)
+		}
+		if cfg.StopAPIAppVersion == "" {
+			return Config{}, errors.New("STOP_API_APP_VERSION: required when STOP_API_URL is set")
+		}
+	}
+	syncAt, err := time.Parse("15:04", valueOr(getenv("STOPINFO_SYNC_AT"), "03:00"))
+	if err != nil {
+		return Config{}, fmt.Errorf("STOPINFO_SYNC_AT: %q is not a HH:MM time", getenv("STOPINFO_SYNC_AT"))
+	}
+	cfg.StopInfoSyncAt = time.Duration(syncAt.Hour())*time.Hour + time.Duration(syncAt.Minute())*time.Minute
 	return cfg, nil
 }
 

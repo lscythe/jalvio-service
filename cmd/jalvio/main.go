@@ -14,12 +14,15 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	_ "time/tzdata" // lets TZ name a zone in images without zoneinfo
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/config"
 	"github.com/lscythe/jalvio-service/internal/fleet"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
+	"github.com/lscythe/jalvio-service/internal/stopapi"
+	"github.com/lscythe/jalvio-service/internal/stopinfo"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -31,6 +34,14 @@ const (
 	feedRetryDelay   = time.Minute
 	busFlushInterval = time.Second
 	busExpireEvery   = 5 * time.Second
+	stopAPITimeout   = 15 * time.Second
+	stopRetryDelay   = 15 * time.Minute
+)
+
+// Upstream request spacing for the stop facilities sync; tests shorten it.
+var (
+	stopSearchGap = 5 * time.Second
+	stopDetailGap = time.Second
 )
 
 func main() {
@@ -83,6 +94,30 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 		feed = live
 	}
 
+	var stopInfo httpapi.StopInfo
+	var stops *stopinfo.Syncer
+	if cfg.StopAPIURL != "" {
+		deviceID, err := stopapi.LoadOrCreateDeviceID(filepath.Join(cfg.DataDir, "device-id"))
+		if err != nil {
+			return errors.Join(err, ln.Close())
+		}
+		api := stopapi.New(&http.Client{Timeout: stopAPITimeout}, stopapi.Config{
+			BaseURL:    cfg.StopAPIURL,
+			AppVersion: cfg.StopAPIAppVersion,
+			DeviceID:   deviceID,
+			UserAgent:  "jalvio-service/" + version,
+		})
+		stops = stopinfo.New(api, catalogs, stopinfo.Config{
+			Path:      filepath.Join(cfg.DataDir, "stopinfo.json"),
+			SearchGap: stopSearchGap,
+			DetailGap: stopDetailGap,
+		}, logger)
+		if err := stops.Load(); err != nil {
+			logger.Warn("ignoring stored stop facilities", "error", err)
+		}
+		stopInfo = stops
+	}
+
 	var draining atomic.Bool
 	handler := httpapi.New(httpapi.Deps{
 		Info:     httpapi.Info{Version: version, StartedAt: time.Now().UTC()},
@@ -90,6 +125,7 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 		Catalogs: catalogs,
 		Feed:     feed,
 		Buses:    buses,
+		StopInfo: stopInfo,
 	})
 
 	var workers sync.WaitGroup
@@ -97,6 +133,17 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 	workers.Go(func() { buses.Run(ctx, busFlushInterval, busExpireEvery) })
 	if live != nil {
 		workers.Go(func() { live.Run(ctx) })
+	}
+	if stops != nil {
+		syncAt := stopinfo.DailyAt(int(cfg.StopInfoSyncAt/time.Hour), int(cfg.StopInfoSyncAt%time.Hour/time.Minute))
+		workers.Go(func() {
+			// The sync matches against the catalog, so it waits for one.
+			select {
+			case <-catalogs.Loaded():
+				stops.Run(ctx, syncAt, stopRetryDelay)
+			case <-ctx.Done():
+			}
+		})
 	}
 	defer workers.Wait()
 
