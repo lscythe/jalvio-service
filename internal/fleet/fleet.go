@@ -37,12 +37,18 @@ type Arrival struct {
 // Fleet holds the latest state of every reporting bus. It is safe for
 // concurrent use. Updates are replaced whole, never modified in place.
 type Fleet struct {
-	mu    sync.RWMutex
-	buses map[string]Bus
+	mu          sync.RWMutex
+	buses       map[string]Bus
+	pending     map[string]bool // plate → still present, since the last flush
+	subscribers map[*Subscription]struct{}
 }
 
 func New() *Fleet {
-	return &Fleet{buses: map[string]Bus{}}
+	return &Fleet{
+		buses:       map[string]Bus{},
+		pending:     map[string]bool{},
+		subscribers: map[*Subscription]struct{}{},
+	}
 }
 
 // Apply stores u unless an equal or newer report for the bus is already held.
@@ -53,6 +59,7 @@ func (f *Fleet) Apply(u Update, now time.Time) bool {
 		return false
 	}
 	f.buses[u.Plate] = Bus{Update: u, LastSeen: now}
+	f.pending[u.Plate] = true
 	return true
 }
 
@@ -64,9 +71,11 @@ func (f *Fleet) Expire(now time.Time) {
 		switch age := now.Sub(b.LastSeen); {
 		case age >= RemoveAfter:
 			delete(f.buses, plate)
+			f.pending[plate] = false
 		case age >= StaleAfter && !b.Stale:
 			b.Stale = true
 			f.buses[plate] = b
+			f.pending[plate] = true
 		}
 	}
 }
@@ -132,6 +141,8 @@ func (f *Fleet) filter(keep func(Bus) bool) []Bus {
 		}
 	}
 	f.mu.RUnlock()
-	slices.SortFunc(out, func(a, b Bus) int { return cmp.Compare(a.Plate, b.Plate) })
+	slices.SortFunc(out, byPlate)
 	return out
 }
+
+func byPlate(a, b Bus) int { return cmp.Compare(a.Plate, b.Plate) }
