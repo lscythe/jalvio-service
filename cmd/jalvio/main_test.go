@@ -72,11 +72,15 @@ type serviceStatus struct {
 	Feed struct {
 		State string `json:"state"`
 	} `json:"feed"`
+	StopFacilities struct {
+		State string `json:"state"`
+		Error string `json:"error"`
+	} `json:"stop_facilities"`
 }
 
 // startService runs the service against a local copy of the fixture feed and
 // waits until it is ready.
-func startService(t *testing.T, mqttURL string) (base, dataDir string) {
+func startService(t *testing.T, mqttURL, stopAPIURL string) (base, dataDir string) {
 	t.Helper()
 	feed := catalogtest.Feed(t, nil)
 	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -85,7 +89,15 @@ func startService(t *testing.T, mqttURL string) (base, dataDir string) {
 	t.Cleanup(feedServer.Close)
 
 	dataDir = filepath.Join(t.TempDir(), "data")
-	cfg := config.Config{DataDir: dataDir, GTFSURL: feedServer.URL, GTFSRefresh: time.Hour, MQTTURL: mqttURL}
+	cfg := config.Config{
+		DataDir:           dataDir,
+		GTFSURL:           feedServer.URL,
+		GTFSRefresh:       time.Hour,
+		MQTTURL:           mqttURL,
+		StopAPIURL:        stopAPIURL,
+		StopAPIAppVersion: "1.0.0",
+		StopInfoSyncAt:    3 * time.Hour,
+	}
 	ln := listen(t)
 	base = "http://" + ln.Addr().String()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -107,7 +119,7 @@ func startService(t *testing.T, mqttURL string) (base, dataDir string) {
 }
 
 func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
-	base, dataDir := startService(t, "")
+	base, dataDir := startService(t, "", "")
 
 	var status serviceStatus
 	getJSON(t, base+"/v1/status", &status)
@@ -117,13 +129,16 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 	if status.Feed.State != "disabled" {
 		t.Errorf("feed state = %q, want disabled", status.Feed.State)
 	}
+	if status.StopFacilities.State != "disabled" {
+		t.Errorf("stop facilities state = %q, want disabled", status.StopFacilities.State)
+	}
 	if _, err := os.Stat(filepath.Join(dataDir, "gtfs.zip")); err != nil {
 		t.Errorf("feed not stored: %v", err)
 	}
 }
 
 func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
-	base, dataDir := startService(t, "wss://127.0.0.1:1/mqtt")
+	base, dataDir := startService(t, "wss://127.0.0.1:1/mqtt", "")
 
 	var status serviceStatus
 	getJSON(t, base+"/v1/status", &status)
@@ -132,6 +147,46 @@ func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "mqtt-client-id")); err != nil {
 		t.Errorf("client ID not stored: %v", err)
+	}
+}
+
+// stopAPI fakes the stop API with the fixture feed's three stations.
+func stopAPI(t *testing.T) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/auth/login/guest", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"token":"t","token_valid_until":4102444800}`))
+	})
+	mux.HandleFunc("GET /v1/bus-stop", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"stop_id":"H00001P","stop_name":"Blok M","v2_facilities":[{"name":"toilet","title":"toilet"}]},
+			{"stop_id":"H00002P","stop_name":"Bundaran HI"},
+			{"stop_id":"H00003P","stop_name":"Kota"}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL + "/v1"
+}
+
+func TestRunServiceSyncsStopFacilities(t *testing.T) {
+	searchGap, detailGap := stopSearchGap, stopDetailGap
+	stopSearchGap, stopDetailGap = 0, 0
+	t.Cleanup(func() { stopSearchGap, stopDetailGap = searchGap, detailGap })
+
+	base, dataDir := startService(t, "", stopAPI(t))
+
+	var status serviceStatus
+	deadline := time.Now().Add(5 * time.Second)
+	for getJSON(t, base+"/v1/status", &status); status.StopFacilities.State != "synced"; getJSON(t, base+"/v1/status", &status) {
+		if time.Now().After(deadline) {
+			t.Fatalf("stop facilities = %+v, want synced", status.StopFacilities)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, name := range []string{"device-id", "stopinfo.json"} {
+		if _, err := os.Stat(filepath.Join(dataDir, name)); err != nil {
+			t.Errorf("%s not stored: %v", name, err)
+		}
 	}
 }
 

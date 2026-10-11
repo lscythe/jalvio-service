@@ -213,3 +213,24 @@ func TestSourceRunRetriesUntilLoaded(t *testing.T) {
 		t.Fatal("Run did not return after cancel")
 	}
 }
+
+func TestLoadedClosesOnFirstPublish(t *testing.T) {
+	feed := catalogtest.Feed(t, nil)
+	s, _ := newSource(t, fetchResult{data: feed})
+
+	select {
+	case <-s.Loaded():
+		t.Fatal("Loaded closed before a catalog was published")
+	default:
+	}
+	for range 2 {
+		if err := s.Refresh(t.Context()); err != nil {
+			t.Fatalf("Refresh: %v", err)
+		}
+	}
+	select {
+	case <-s.Loaded():
+	default:
+		t.Fatal("Loaded still open after a catalog was published")
+	}
+}

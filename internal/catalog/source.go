@@ -32,14 +32,19 @@ type Source struct {
 	path    string
 	logger  *slog.Logger
 	current atomic.Pointer[Catalog]
+	loaded  chan struct{}
+	once    sync.Once
 
 	mu     sync.Mutex
 	status Status
 }
 
 func NewSource(fetcher Fetcher, path string, logger *slog.Logger) *Source {
-	return &Source{fetcher: fetcher, path: path, logger: logger}
+	return &Source{fetcher: fetcher, path: path, logger: logger, loaded: make(chan struct{})}
 }
+
+// Loaded is closed once the first catalog is published.
+func (s *Source) Loaded() <-chan struct{} { return s.loaded }
 
 // Current returns the published catalog, or nil before the first load.
 func (s *Source) Current() *Catalog { return s.current.Load() }
@@ -103,6 +108,7 @@ func (s *Source) refresh(ctx context.Context) error {
 
 func (s *Source) publish(c *Catalog) {
 	s.current.Store(c)
+	s.once.Do(func() { close(s.loaded) })
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.status.Version = c.Version()

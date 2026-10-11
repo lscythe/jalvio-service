@@ -29,10 +29,11 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	want := config.Config{
-		Listen:      ":8080",
-		DataDir:     "./data",
-		GTFSURL:     feedURL,
-		GTFSRefresh: 24 * time.Hour,
+		Listen:         ":8080",
+		DataDir:        "./data",
+		GTFSURL:        feedURL,
+		GTFSRefresh:    24 * time.Hour,
+		StopInfoSyncAt: 3 * time.Hour,
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)
@@ -47,18 +48,24 @@ func TestLoadOverrides(t *testing.T) {
 		"MQTT_URL":             "wss://broker.example.com:8084/mqtt",
 		"MQTT_TLS_SERVER_NAME": "cert.example.com",
 		"MQTT_DIAL_ADDRESS":    "192.0.2.10:8084",
+		"STOP_API_URL":         "https://stops.example.com/v1",
+		"STOP_API_APP_VERSION": "1.0.0",
+		"STOPINFO_SYNC_AT":     "04:30",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	want := config.Config{
-		Listen:          "127.0.0.1:9000",
-		DataDir:         "/data",
-		GTFSURL:         feedURL,
-		GTFSRefresh:     6 * time.Hour,
-		MQTTURL:         "wss://broker.example.com:8084/mqtt",
-		MQTTServerName:  "cert.example.com",
-		MQTTDialAddress: "192.0.2.10:8084",
+		Listen:            "127.0.0.1:9000",
+		DataDir:           "/data",
+		GTFSURL:           feedURL,
+		GTFSRefresh:       6 * time.Hour,
+		MQTTURL:           "wss://broker.example.com:8084/mqtt",
+		MQTTServerName:    "cert.example.com",
+		MQTTDialAddress:   "192.0.2.10:8084",
+		StopAPIURL:        "https://stops.example.com/v1",
+		StopAPIAppVersion: "1.0.0",
+		StopInfoSyncAt:    4*time.Hour + 30*time.Minute,
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)
@@ -81,9 +88,18 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"MQTT_URL", "https://broker.example.com:8084/mqtt"},
 		{"MQTT_URL", "broker.example.com:8084"},
 		{"MQTT_DIAL_ADDRESS", "192.0.2.10"},
+		{"STOP_API_URL", "stops.example.com/v1"},
+		{"STOP_API_APP_VERSION", ""},
+		{"STOPINFO_SYNC_AT", "25:00"},
+		{"STOPINFO_SYNC_AT", "3am"},
 	}
 	for _, tt := range tests {
-		if _, err := config.Load(env(map[string]string{tt.key: tt.value})); err == nil {
+		vars := map[string]string{
+			"STOP_API_URL":         "https://stops.example.com/v1",
+			"STOP_API_APP_VERSION": "1.0.0",
+			tt.key:                 tt.value,
+		}
+		if _, err := config.Load(env(vars)); err == nil {
 			t.Errorf("Load(%s=%q) succeeded, want error", tt.key, tt.value)
 		}
 	}

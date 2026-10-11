@@ -11,6 +11,7 @@ import (
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
+	"github.com/lscythe/jalvio-service/internal/stopinfo"
 )
 
 var startedAt = time.Date(2026, 10, 12, 3, 0, 0, 0, time.UTC)
@@ -22,6 +23,10 @@ func (f fakeCatalogs) Status() catalog.Status { return f.status }
 type fakeFeed struct{ status mqttfeed.Status }
 
 func (f fakeFeed) Status() mqttfeed.Status { return f.status }
+
+type fakeStopInfo struct{ status stopinfo.Status }
+
+func (f fakeStopInfo) Status() stopinfo.Status { return f.status }
 
 type fakeBuses int
 
@@ -74,6 +79,7 @@ func TestStatus(t *testing.T) {
 		name    string
 		catalog catalog.Status
 		feed    httpapi.Feed
+		stops   httpapi.StopInfo
 		buses   int
 		want    string
 	}{
@@ -81,7 +87,8 @@ func TestStatus(t *testing.T) {
 			name:    "starting with the feed disabled",
 			catalog: catalog.Status{Error: "fetch feed: timeout"},
 			want: prefix + `"catalog":{"error":"fetch feed: timeout"},` +
-				`"feed":{"state":"disabled","reconnects":0,"messages":0,"malformed":0,"buses":0}}`,
+				`"feed":{"state":"disabled","reconnects":0,"messages":0,"malformed":0,"buses":0},` +
+				`"stop_facilities":{"state":"disabled","requests":0,"matched":0,"unmatched":0}}`,
 		},
 		{
 			name:    "catalog loaded and feed connected",
@@ -89,15 +96,24 @@ func TestStatus(t *testing.T) {
 			feed: fakeFeed{mqttfeed.Status{
 				Connected: true, LastMessageAt: lastMessage, Reconnects: 2, Messages: 1500, Malformed: 3,
 			}},
+			stops: fakeStopInfo{stopinfo.Status{
+				SyncedAt: startedAt, CheckedAt: checked, Error: "matched 1 of 272 halte, below 95%",
+				Requests: 6, Matched: 1, Unmatched: 271,
+			}},
 			buses: 1412,
 			want: prefix + `"catalog":{"version":"abc","updated_at":"2026-10-12T03:00:00Z","checked_at":"2026-10-12T04:00:00Z"},` +
-				`"feed":{"state":"connected","last_message_at":"2026-10-12T05:00:00Z","reconnects":2,"messages":1500,"malformed":3,"buses":1412}}`,
+				`"feed":{"state":"connected","last_message_at":"2026-10-12T05:00:00Z","reconnects":2,"messages":1500,"malformed":3,"buses":1412},` +
+				`"stop_facilities":{"state":"synced","synced_at":"2026-10-12T03:00:00Z","checked_at":"2026-10-12T04:00:00Z",` +
+				`"error":"matched 1 of 272 halte, below 95%","requests":6,"matched":1,"unmatched":271}}`,
 		},
 		{
-			name: "feed disconnected",
-			feed: fakeFeed{mqttfeed.Status{Reconnects: 1}},
+			name:  "feed disconnected",
+			feed:  fakeFeed{mqttfeed.Status{Reconnects: 1}},
+			stops: fakeStopInfo{stopinfo.Status{CheckedAt: checked, Error: "catalog not loaded"}},
 			want: prefix + `"catalog":{},` +
-				`"feed":{"state":"disconnected","reconnects":1,"messages":0,"malformed":0,"buses":0}}`,
+				`"feed":{"state":"disconnected","reconnects":1,"messages":0,"malformed":0,"buses":0},` +
+				`"stop_facilities":{"state":"pending","checked_at":"2026-10-12T04:00:00Z","error":"catalog not loaded",` +
+				`"requests":0,"matched":0,"unmatched":0}}`,
 		},
 	}
 	for _, tt := range tests {
@@ -105,6 +121,7 @@ func TestStatus(t *testing.T) {
 			d := deps(true)
 			d.Catalogs = fakeCatalogs{tt.catalog}
 			d.Feed = tt.feed
+			d.StopInfo = tt.stops
 			d.Buses = fakeBuses(tt.buses)
 			rec := serve(t, httpapi.New(d), http.MethodGet, "/v1/status")
 
