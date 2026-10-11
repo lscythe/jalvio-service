@@ -10,6 +10,7 @@ import (
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
+	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 )
 
 var startedAt = time.Date(2026, 10, 12, 3, 0, 0, 0, time.UTC)
@@ -18,13 +19,25 @@ type fakeCatalogs struct{ status catalog.Status }
 
 func (f fakeCatalogs) Status() catalog.Status { return f.status }
 
+type fakeFeed struct{ status mqttfeed.Status }
+
+func (f fakeFeed) Status() mqttfeed.Status { return f.status }
+
+type fakeBuses int
+
+func (n fakeBuses) Len() int { return int(n) }
+
 func newHandler(ready bool) http.Handler {
-	return newHandlerWithCatalog(ready, catalog.Status{})
+	return httpapi.New(deps(ready))
 }
 
-func newHandlerWithCatalog(ready bool, status catalog.Status) http.Handler {
-	info := httpapi.Info{Version: "1.2.3", StartedAt: startedAt}
-	return httpapi.New(info, func() bool { return ready }, fakeCatalogs{status})
+func deps(ready bool) httpapi.Deps {
+	return httpapi.Deps{
+		Info:     httpapi.Info{Version: "1.2.3", StartedAt: startedAt},
+		Ready:    func() bool { return ready },
+		Catalogs: fakeCatalogs{},
+		Buses:    fakeBuses(0),
+	}
 }
 
 func serve(t *testing.T, h http.Handler, method, target string) *httptest.ResponseRecorder {
@@ -55,27 +68,45 @@ func TestHealthz(t *testing.T) {
 
 func TestStatus(t *testing.T) {
 	checked := startedAt.Add(time.Hour)
+	lastMessage := startedAt.Add(2 * time.Hour)
+	const prefix = `{"version":"1.2.3","started_at":"2026-10-12T03:00:00Z",`
 	tests := []struct {
 		name    string
 		catalog catalog.Status
+		feed    httpapi.Feed
+		buses   int
 		want    string
 	}{
 		{
-			name:    "no catalog yet",
+			name:    "starting with the feed disabled",
 			catalog: catalog.Status{Error: "fetch feed: timeout"},
-			want: `{"version":"1.2.3","started_at":"2026-10-12T03:00:00Z",` +
-				`"catalog":{"error":"fetch feed: timeout"}}`,
+			want: prefix + `"catalog":{"error":"fetch feed: timeout"},` +
+				`"feed":{"state":"disabled","reconnects":0,"messages":0,"malformed":0,"buses":0}}`,
 		},
 		{
-			name:    "catalog loaded",
+			name:    "catalog loaded and feed connected",
 			catalog: catalog.Status{Version: "abc", UpdatedAt: startedAt, CheckedAt: checked},
-			want: `{"version":"1.2.3","started_at":"2026-10-12T03:00:00Z",` +
-				`"catalog":{"version":"abc","updated_at":"2026-10-12T03:00:00Z","checked_at":"2026-10-12T04:00:00Z"}}`,
+			feed: fakeFeed{mqttfeed.Status{
+				Connected: true, LastMessageAt: lastMessage, Reconnects: 2, Messages: 1500, Malformed: 3,
+			}},
+			buses: 1412,
+			want: prefix + `"catalog":{"version":"abc","updated_at":"2026-10-12T03:00:00Z","checked_at":"2026-10-12T04:00:00Z"},` +
+				`"feed":{"state":"connected","last_message_at":"2026-10-12T05:00:00Z","reconnects":2,"messages":1500,"malformed":3,"buses":1412}}`,
+		},
+		{
+			name: "feed disconnected",
+			feed: fakeFeed{mqttfeed.Status{Reconnects: 1}},
+			want: prefix + `"catalog":{},` +
+				`"feed":{"state":"disconnected","reconnects":1,"messages":0,"malformed":0,"buses":0}}`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := serve(t, newHandlerWithCatalog(true, tt.catalog), http.MethodGet, "/v1/status")
+			d := deps(true)
+			d.Catalogs = fakeCatalogs{tt.catalog}
+			d.Feed = tt.feed
+			d.Buses = fakeBuses(tt.buses)
+			rec := serve(t, httpapi.New(d), http.MethodGet, "/v1/status")
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)

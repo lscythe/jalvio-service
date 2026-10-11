@@ -65,20 +65,36 @@ func TestServeDrainsOnCancel(t *testing.T) {
 	}
 }
 
-func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
+type serviceStatus struct {
+	Catalog struct {
+		Version string `json:"version"`
+	} `json:"catalog"`
+	Feed struct {
+		State string `json:"state"`
+	} `json:"feed"`
+}
+
+// startService runs the service against a local copy of the fixture feed and
+// waits until it is ready.
+func startService(t *testing.T, mqttURL string) (base, dataDir string) {
+	t.Helper()
 	feed := catalogtest.Feed(t, nil)
 	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(feed)
 	}))
-	defer feedServer.Close()
+	t.Cleanup(feedServer.Close)
 
-	dataDir := filepath.Join(t.TempDir(), "data")
-	cfg := config.Config{DataDir: dataDir, GTFSURL: feedServer.URL, GTFSRefresh: time.Hour}
+	dataDir = filepath.Join(t.TempDir(), "data")
+	cfg := config.Config{DataDir: dataDir, GTFSURL: feedServer.URL, GTFSRefresh: time.Hour, MQTTURL: mqttURL}
 	ln := listen(t)
-	base := "http://" + ln.Addr().String()
+	base = "http://" + ln.Addr().String()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- runService(ctx, cfg, ln, discard) }()
+	t.Cleanup(func() {
+		cancel()
+		waitDone(t, done)
+	})
 
 	deadline := time.Now().Add(5 * time.Second)
 	for get(t, base+"/healthz") != http.StatusNoContent {
@@ -87,22 +103,36 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	return base, dataDir
+}
 
-	var status struct {
-		Catalog struct {
-			Version string `json:"version"`
-		} `json:"catalog"`
-	}
+func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
+	base, dataDir := startService(t, "")
+
+	var status serviceStatus
 	getJSON(t, base+"/v1/status", &status)
 	if status.Catalog.Version == "" {
 		t.Error("status has no catalog version")
 	}
+	if status.Feed.State != "disabled" {
+		t.Errorf("feed state = %q, want disabled", status.Feed.State)
+	}
 	if _, err := os.Stat(filepath.Join(dataDir, "gtfs.zip")); err != nil {
 		t.Errorf("feed not stored: %v", err)
 	}
+}
 
-	cancel()
-	waitDone(t, done)
+func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
+	base, dataDir := startService(t, "wss://127.0.0.1:1/mqtt")
+
+	var status serviceStatus
+	getJSON(t, base+"/v1/status", &status)
+	if status.Feed.State != "disconnected" {
+		t.Errorf("feed state = %q, want disconnected", status.Feed.State)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "mqtt-client-id")); err != nil {
+		t.Errorf("client ID not stored: %v", err)
+	}
 }
 
 func TestRunRejectsInvalidConfig(t *testing.T) {

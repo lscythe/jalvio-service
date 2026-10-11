@@ -12,6 +12,10 @@ type Config struct {
 	DataDir     string
 	GTFSURL     string
 	GTFSRefresh time.Duration
+	// MQTTURL is empty when the live feed is disabled.
+	MQTTURL         string
+	MQTTServerName  string
+	MQTTDialAddress string
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -31,6 +35,20 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("GTFS_REFRESH: %q is not a positive duration", getenv("GTFS_REFRESH"))
 	}
 	cfg.GTFSRefresh = refresh
+
+	cfg.MQTTURL = valueOr(getenv("MQTT_URL"), "wss://broker.example.com:8084/mqtt")
+	if cfg.MQTTURL == "disabled" {
+		cfg.MQTTURL = ""
+	} else if u, err := url.Parse(cfg.MQTTURL); err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
+		return Config{}, fmt.Errorf("MQTT_URL: %q is not a ws(s) URL or \"disabled\"", cfg.MQTTURL)
+	}
+	cfg.MQTTServerName = valueOr(getenv("MQTT_TLS_SERVER_NAME"), "broker.example.com")
+	cfg.MQTTDialAddress = getenv("MQTT_DIAL_ADDRESS")
+	if cfg.MQTTDialAddress != "" {
+		if _, _, err := net.SplitHostPort(cfg.MQTTDialAddress); err != nil {
+			return Config{}, fmt.Errorf("MQTT_DIAL_ADDRESS: %w", err)
+		}
+	}
 	return cfg, nil
 }
 

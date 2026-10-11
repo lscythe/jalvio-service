@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
+	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 )
 
 type Info struct {
@@ -17,10 +18,28 @@ type Catalogs interface {
 	Status() catalog.Status
 }
 
+type Feed interface {
+	Status() mqttfeed.Status
+}
+
+type Buses interface {
+	Len() int
+}
+
+type Deps struct {
+	Info     Info
+	Ready    func() bool
+	Catalogs Catalogs
+	// Feed is nil when the live feed is disabled.
+	Feed  Feed
+	Buses Buses
+}
+
 type statusResponse struct {
 	Version   string        `json:"version"`
 	StartedAt time.Time     `json:"started_at"`
 	Catalog   catalogStatus `json:"catalog"`
+	Feed      feedStatus    `json:"feed"`
 }
 
 type catalogStatus struct {
@@ -30,10 +49,19 @@ type catalogStatus struct {
 	Error     string    `json:"error,omitempty"`
 }
 
-func New(info Info, ready func() bool, catalogs Catalogs) http.Handler {
+type feedStatus struct {
+	State         string    `json:"state"`
+	LastMessageAt time.Time `json:"last_message_at,omitzero"`
+	Reconnects    int       `json:"reconnects"`
+	Messages      int64     `json:"messages"`
+	Malformed     int64     `json:"malformed"`
+	Buses         int       `json:"buses"`
+}
+
+func New(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		if !ready() {
+		if !d.Ready() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
@@ -41,12 +69,32 @@ func New(info Info, ready func() bool, catalogs Catalogs) http.Handler {
 	})
 	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, statusResponse{
-			Version:   info.Version,
-			StartedAt: info.StartedAt,
-			Catalog:   catalogStatus(catalogs.Status()),
+			Version:   d.Info.Version,
+			StartedAt: d.Info.StartedAt,
+			Catalog:   catalogStatus(d.Catalogs.Status()),
+			Feed:      newFeedStatus(d.Feed, d.Buses.Len()),
 		})
 	})
 	return problemFallback(mux)
+}
+
+func newFeedStatus(feed Feed, buses int) feedStatus {
+	if feed == nil {
+		return feedStatus{State: "disabled", Buses: buses}
+	}
+	st := feed.Status()
+	state := "disconnected"
+	if st.Connected {
+		state = "connected"
+	}
+	return feedStatus{
+		State:         state,
+		LastMessageAt: st.LastMessageAt,
+		Reconnects:    st.Reconnects,
+		Messages:      st.Messages,
+		Malformed:     st.Malformed,
+		Buses:         buses,
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
