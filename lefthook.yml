@@ -1,0 +1,37 @@
+pre-commit:
+  jobs:
+    - name: format
+      glob: "*.go"
+      run: mise exec -- golangci-lint fmt {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: "*.go"
+      run: mise exec -- golangci-lint run ./...
+    - name: tests and coverage
+      glob: "*.go"
+      exclude: ["**/testdata/**"]
+      run: |
+        profile=$(mktemp)
+        trap 'rm -f "$profile"' EXIT
+        packages=$(for f in {staged_files}; do echo "./$(dirname "$f")"; done | sort -u)
+        mise exec -- go test -covermode=atomic -coverprofile="$profile" $packages &&
+          mise exec -- go run ./cmd/covergate -profile "$profile" {staged_files}
+
+commit-msg:
+  jobs:
+    - name: conventional commit
+      run: |
+        subject=$(head -n 1 "{1}")
+        case "$subject" in
+          "Merge "* | "Revert "* | "fixup! "* | "squash! "* | "amend! "*) exit 0 ;;
+        esac
+        types='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+        if ! printf '%s\n' "$subject" | grep -Eq "^($types)(\([a-z0-9][a-z0-9._/-]*\))?!?: [^ ]"; then
+          echo "Commit subject must follow Conventional Commits, e.g. 'feat(catalog): add stop search'."
+          echo "Got: $subject"
+          exit 1
+        fi
+        if [ "${#subject}" -gt 100 ]; then
+          echo "Commit subject is ${#subject} characters; keep it within 100."
+          exit 1
+        fi

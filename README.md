@@ -33,7 +33,8 @@ Errors are RFC 9457 `application/problem+json`.
 ## Develop
 
 ```sh
-mise run check   # format, lint, race tests, vulnerability scan
+lefthook install # git hooks: format, lint, tests, commit message
+mise run check   # format, lint, race tests, coverage gate, vulnerability scan
 ```
 
 ## License
