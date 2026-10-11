@@ -1,0 +1,344 @@
+package catalog_test
+
+import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/lscythe/jalvio-service/internal/catalog"
+)
+
+// feedZip zips testdata/feed, replacing the named files' contents and leaving
+// out the omitted ones.
+func feedZip(t *testing.T, replace map[string]string, omit ...string) []byte {
+	t.Helper()
+	paths, err := filepath.Glob("testdata/feed/*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, path := range paths {
+		name := filepath.Base(path)
+		if contains(omit, name) {
+			continue
+		}
+		content, ok := replace[name]
+		if !ok {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			content = string(raw)
+		}
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func parseFixture(t *testing.T) *catalog.Catalog {
+	t.Helper()
+	c, err := catalog.Parse(feedZip(t, nil))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	return c
+}
+
+func TestParseVersionIsZipHash(t *testing.T) {
+	data := feedZip(t, nil)
+	c, err := catalog.Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	sum := sha256.Sum256(data)
+	if want := hex.EncodeToString(sum[:]); c.Version() != want {
+		t.Errorf("Version = %q, want %q", c.Version(), want)
+	}
+}
+
+func TestParseRoutes(t *testing.T) {
+	c := parseFixture(t)
+
+	want := catalog.Route{
+		ID:        "JAK.18",
+		Code:      "JAK.18",
+		Name:      "Kalibata - Kuningan",
+		Class:     "Mikrotrans",
+		Color:     "62C2D2",
+		TextColor: "000000",
+		TripIDs:   []string{"JAK.18-R01"},
+	}
+	got, ok := c.Route("JAK.18")
+	if !ok {
+		t.Fatal("route JAK.18 not found")
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Route = %+v, want %+v", got, want)
+	}
+
+	var codes []string
+	for _, r := range c.Routes() {
+		codes = append(codes, r.Code)
+	}
+	if want := []string{"1", "JAK.18"}; !reflect.DeepEqual(codes, want) {
+		t.Errorf("route codes = %v, want %v", codes, want)
+	}
+}
+
+func TestParseStops(t *testing.T) {
+	c := parseFixture(t)
+
+	tests := []struct {
+		id   string
+		want catalog.Stop
+	}{
+		{
+			id: "H00002P",
+			want: catalog.Stop{
+				ID: "H00002P", Name: "Bundaran HI", Lat: -6.193, Lon: 106.823,
+				Kind: catalog.Station, ChildIDs: []string{"G00002"}, RouteIDs: []string{"1"},
+			},
+		},
+		{
+			id: "G00002",
+			want: catalog.Stop{
+				ID: "G00002", Name: "Bundaran HI", Lat: -6.1931, Lon: 106.8231,
+				Kind: catalog.Platform, ParentID: "H00002P", RouteIDs: []string{"1"},
+			},
+		},
+		{
+			id: "B00003P",
+			want: catalog.Stop{
+				ID: "B00003P", Code: "KNB", Name: "Kuningan Barat", Lat: -6.236, Lon: 106.828,
+				Kind: catalog.Roadside, RouteIDs: []string{"JAK.18"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		got, ok := c.Stop(tt.id)
+		if !ok {
+			t.Errorf("stop %s not found", tt.id)
+			continue
+		}
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("Stop(%s) = %+v, want %+v", tt.id, got, tt.want)
+		}
+	}
+	if n := len(c.Stops()); n != 9 {
+		t.Errorf("len(Stops) = %d, want 9", n)
+	}
+}
+
+func TestParseTrips(t *testing.T) {
+	c := parseFixture(t)
+
+	want := catalog.Trip{
+		ID:        "1-R01",
+		RouteID:   "1",
+		ServiceID: "SH",
+		Headsign:  "Kota",
+		Name:      "Blok M - Kota",
+		Direction: 0,
+		StopIDs:   []string{"G00001", "G00002", "G00003"},
+		Shape: []catalog.Point{
+			{Lat: -6.243, Lon: 106.801},
+			{Lat: -6.193, Lon: 106.823},
+			{Lat: -6.137, Lon: 106.813},
+		},
+		Headways: []catalog.Headway{
+			{Start: 5 * time.Hour, End: 22 * time.Hour, Every: 10 * time.Minute},
+			{Start: 22 * time.Hour, End: 25 * time.Hour, Every: 30 * time.Minute},
+		},
+	}
+	got, ok := c.Trip("1-R01")
+	if !ok {
+		t.Fatal("trip 1-R01 not found")
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Trip = %+v,\nwant %+v", got, want)
+	}
+
+	if got, _ := c.Trip("JAK.18-R01"); got.Headways != nil {
+		t.Errorf("JAK.18-R01 headways = %v, want none", got.Headways)
+	}
+}
+
+func TestParseAcceptsByteOrderMark(t *testing.T) {
+	raw, err := os.ReadFile("testdata/feed/routes.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := catalog.Parse(feedZip(t, map[string]string{"routes.txt": "\xEF\xBB\xBF" + string(raw)}))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, ok := c.Route("1"); !ok {
+		t.Error("route 1 not found")
+	}
+}
+
+func TestParseRejectsInvalidFeed(t *testing.T) {
+	tests := []struct {
+		name    string
+		replace map[string]string
+		omit    []string
+		wantErr string
+	}{
+		{
+			name:    "not a zip",
+			wantErr: "zip",
+		},
+		{
+			name:    "missing required file",
+			omit:    []string{"stop_times.txt"},
+			wantErr: "stop_times.txt",
+		},
+		{
+			name:    "missing required column",
+			replace: map[string]string{"routes.txt": "route_id,route_long_name\n1,Blok M - Kota\n"},
+			wantErr: "route_short_name",
+		},
+		{
+			name:    "no trips",
+			replace: map[string]string{"trips.txt": "trip_id,route_id,service_id,direction_id,shape_id\n"},
+			wantErr: "trips.txt",
+		},
+		{
+			name: "trip with unknown route",
+			replace: map[string]string{"trips.txt": "trip_id,route_id,service_id,trip_headsign,direction_id,shape_id\n" +
+				"1-R01,99,SH,Kota,0,1-R01_shp\n"},
+			wantErr: "unknown route",
+		},
+		{
+			name: "trip with unknown shape",
+			replace: map[string]string{"trips.txt": "trip_id,route_id,service_id,trip_headsign,direction_id,shape_id\n" +
+				"1-R01,1,SH,Kota,0,nope\n"},
+			wantErr: "unknown shape",
+		},
+		{
+			name: "stop time with unknown stop",
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id\n" +
+				"1-R01,0,G00001\n1-R01,1,X99999\n"},
+			wantErr: "unknown stop",
+		},
+		{
+			name: "stop time with unknown trip",
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id\n" +
+				"nope,0,G00001\n"},
+			wantErr: "unknown trip",
+		},
+		{
+			name: "trip with fewer than two stops",
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id\n" +
+				"1-R01,0,G00001\n1-R02,0,G00003\n1-R02,1,G00001\nJAK.18-R01,0,B00001P\nJAK.18-R01,1,B00002P\n"},
+			wantErr: "1-R01",
+		},
+		{
+			name: "stop with unknown parent",
+			replace: map[string]string{"stops.txt": "stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station\n" +
+				"G00001,Blok M,-6.2431,106.8011,0,H99999P\n"},
+			wantErr: "unknown parent",
+		},
+		{
+			name: "invalid coordinate",
+			replace: map[string]string{"stops.txt": "stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station\n" +
+				"B00001P,Kalibata City,south,106.853,0,\n"},
+			wantErr: "stop_lat",
+		},
+		{
+			name: "frequency for unknown trip",
+			replace: map[string]string{"frequencies.txt": "trip_id,start_time,end_time,headway_secs\n" +
+				"nope,05:00:00,22:00:00,600\n"},
+			wantErr: "unknown trip",
+		},
+		{
+			name: "invalid service time",
+			replace: map[string]string{"frequencies.txt": "trip_id,start_time,end_time,headway_secs\n" +
+				"1-R01,05:75:00,22:00:00,600\n"},
+			wantErr: "start_time",
+		},
+		{
+			name: "invalid stop sequence",
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id\n" +
+				"1-R01,first,G00001\n"},
+			wantErr: "stop_sequence",
+		},
+		{
+			name: "invalid direction",
+			replace: map[string]string{"trips.txt": "trip_id,route_id,service_id,direction_id,shape_id\n" +
+				"1-R01,1,SH,north,1-R01_shp\n"},
+			wantErr: "direction_id",
+		},
+		{
+			name: "invalid shape point",
+			replace: map[string]string{"shapes.txt": "shape_id,shape_pt_sequence,shape_pt_lat,shape_pt_lon\n" +
+				"1-R01_shp,0,-6.243,east\n"},
+			wantErr: "shape_pt_lon",
+		},
+		{
+			name: "invalid headway",
+			replace: map[string]string{"frequencies.txt": "trip_id,start_time,end_time,headway_secs\n" +
+				"1-R01,05:00:00,22:00:00,0\n"},
+			wantErr: "headway_secs",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := []byte("not a zip")
+			if tt.name != "not a zip" {
+				data = feedZip(t, tt.replace, tt.omit...)
+			}
+			_, err := catalog.Parse(data)
+			if err == nil {
+				t.Fatal("Parse succeeded, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestParseRealFeed parses a local copy of the official feed when
+// JALVIO_GTFS_ZIP points at one.
+func TestParseRealFeed(t *testing.T) {
+	path := os.Getenv("JALVIO_GTFS_ZIP")
+	if path == "" {
+		t.Skip("JALVIO_GTFS_ZIP not set")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := catalog.Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	t.Logf("%d routes, %d stops", len(c.Routes()), len(c.Stops()))
+}

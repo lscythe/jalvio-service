@@ -1,0 +1,10 @@
+stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon,zone_id,stop_url,location_type,parent_station,stop_timezone,wheelchair_boarding,platform_code
+H00001P,,Blok M,,-6.243,106.801,1,,1,,,2,
+G00001,,Blok M,,-6.2431,106.8011,1,,0,H00001P,,,A
+H00002P,,Bundaran HI,,-6.193,106.823,1,,1,,,2,
+G00002,,Bundaran HI,,-6.1931,106.8231,1,,0,H00002P,,,A
+H00003P,,Kota,,-6.137,106.813,1,,1,,,2,
+G00003,,Kota,,-6.1371,106.8131,1,,0,H00003P,,,A
+B00001P,,Kalibata City,,-6.257,106.853,1,,0,,,2,
+B00002P,,Pancoran,,-6.243,106.844,1,,0,,,2,
+B00003P,KNB,Kuningan Barat,,-6.236,106.828,1,,0,,,2,

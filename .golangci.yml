@@ -9,6 +9,10 @@ linters:
     - nilerr
     - noctx
     - usestdlibvars
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec]
 formatters:
   enable:
     - gofumpt
