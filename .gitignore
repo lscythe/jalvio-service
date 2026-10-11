@@ -1,0 +1,5 @@
+/jalvio
+/data/
+.env
+.env.*
+coverage.out
