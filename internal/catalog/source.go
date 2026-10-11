@@ -118,7 +118,7 @@ func (s *Source) Run(ctx context.Context, interval, retryDelay time.Duration) {
 			if ctx.Err() != nil {
 				return
 			}
-			s.logger.Warn("feed refresh failed", "error", err, "retry_in", retryDelay)
+			s.logger.Warn("feed refresh failed", "error", err, "retry_in", retryDelay.String())
 			wait = retryDelay
 		}
 		select {

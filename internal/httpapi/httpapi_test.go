@@ -8,13 +8,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
 )
 
 var startedAt = time.Date(2026, 10, 12, 3, 0, 0, 0, time.UTC)
 
+type fakeCatalogs struct{ status catalog.Status }
+
+func (f fakeCatalogs) Status() catalog.Status { return f.status }
+
 func newHandler(ready bool) http.Handler {
-	return httpapi.New(httpapi.Info{Version: "1.2.3", StartedAt: startedAt}, func() bool { return ready })
+	return newHandlerWithCatalog(ready, catalog.Status{})
+}
+
+func newHandlerWithCatalog(ready bool, status catalog.Status) http.Handler {
+	info := httpapi.Info{Version: "1.2.3", StartedAt: startedAt}
+	return httpapi.New(info, func() bool { return ready }, fakeCatalogs{status})
 }
 
 func serve(t *testing.T, h http.Handler, method, target string) *httptest.ResponseRecorder {
@@ -44,23 +54,39 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestStatus(t *testing.T) {
-	rec := serve(t, newHandler(true), http.MethodGet, "/v1/status")
+	checked := startedAt.Add(time.Hour)
+	tests := []struct {
+		name    string
+		catalog catalog.Status
+		want    string
+	}{
+		{
+			name:    "no catalog yet",
+			catalog: catalog.Status{Error: "fetch feed: timeout"},
+			want: `{"version":"1.2.3","started_at":"2026-10-12T03:00:00Z",` +
+				`"catalog":{"error":"fetch feed: timeout"}}`,
+		},
+		{
+			name:    "catalog loaded",
+			catalog: catalog.Status{Version: "abc", UpdatedAt: startedAt, CheckedAt: checked},
+			want: `{"version":"1.2.3","started_at":"2026-10-12T03:00:00Z",` +
+				`"catalog":{"version":"abc","updated_at":"2026-10-12T03:00:00Z","checked_at":"2026-10-12T04:00:00Z"}}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := serve(t, newHandlerWithCatalog(true, tt.catalog), http.MethodGet, "/v1/status")
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if got := rec.Header().Get("Content-Type"); got != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", got)
-	}
-	var body struct {
-		Version   string    `json:"version"`
-		StartedAt time.Time `json:"started_at"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if body.Version != "1.2.3" || !body.StartedAt.Equal(startedAt) {
-		t.Errorf("body = %+v, want version 1.2.3 started at %v", body, startedAt)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", got)
+			}
+			if got := strings.TrimSpace(rec.Body.String()); got != tt.want {
+				t.Errorf("body = %s\nwant   %s", got, tt.want)
+			}
+		})
 	}
 }
 

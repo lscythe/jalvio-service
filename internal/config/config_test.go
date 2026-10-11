@@ -1,7 +1,9 @@
 package config_test
 
 import (
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/lscythe/jalvio-service/internal/config"
 )
@@ -15,25 +17,54 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Listen != ":8080" {
-		t.Errorf("Listen = %q, want %q", cfg.Listen, ":8080")
+	want := config.Config{
+		Listen:      ":8080",
+		DataDir:     "./data",
+		GTFSURL:     "https://gtfs.transjakarta.co.id/files/file_gtfs.zip",
+		GTFSRefresh: 24 * time.Hour,
+	}
+	if !reflect.DeepEqual(cfg, want) {
+		t.Errorf("Load = %+v, want %+v", cfg, want)
 	}
 }
 
-func TestLoadListen(t *testing.T) {
-	cfg, err := config.Load(env(map[string]string{"JALVIO_LISTEN": "127.0.0.1:9000"}))
+func TestLoadOverrides(t *testing.T) {
+	cfg, err := config.Load(env(map[string]string{
+		"JALVIO_LISTEN":   "127.0.0.1:9000",
+		"JALVIO_DATA_DIR": "/data",
+		"GTFS_URL":        "http://localhost:8081/feed.zip",
+		"GTFS_REFRESH":    "6h",
+	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Listen != "127.0.0.1:9000" {
-		t.Errorf("Listen = %q, want %q", cfg.Listen, "127.0.0.1:9000")
+	want := config.Config{
+		Listen:      "127.0.0.1:9000",
+		DataDir:     "/data",
+		GTFSURL:     "http://localhost:8081/feed.zip",
+		GTFSRefresh: 6 * time.Hour,
+	}
+	if !reflect.DeepEqual(cfg, want) {
+		t.Errorf("Load = %+v, want %+v", cfg, want)
 	}
 }
 
-func TestLoadRejectsInvalidListen(t *testing.T) {
-	for _, listen := range []string{"8080", "localhost", ":http:x"} {
-		if _, err := config.Load(env(map[string]string{"JALVIO_LISTEN": listen})); err == nil {
-			t.Errorf("Load(JALVIO_LISTEN=%q) succeeded, want error", listen)
+func TestLoadRejectsInvalidValues(t *testing.T) {
+	tests := []struct {
+		key, value string
+	}{
+		{"JALVIO_LISTEN", "8080"},
+		{"JALVIO_LISTEN", "localhost"},
+		{"JALVIO_LISTEN", ":http:x"},
+		{"GTFS_URL", "gtfs.transjakarta.co.id/files/file_gtfs.zip"},
+		{"GTFS_URL", "ftp://example.com/feed.zip"},
+		{"GTFS_REFRESH", "daily"},
+		{"GTFS_REFRESH", "0s"},
+		{"GTFS_REFRESH", "-1h"},
+	}
+	for _, tt := range tests {
+		if _, err := config.Load(env(map[string]string{tt.key: tt.value})); err == nil {
+			t.Errorf("Load(%s=%q) succeeded, want error", tt.key, tt.value)
 		}
 	}
 }

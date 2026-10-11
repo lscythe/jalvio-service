@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/lscythe/jalvio-service/internal/catalog"
 )
 
 type Info struct {
@@ -11,12 +13,24 @@ type Info struct {
 	StartedAt time.Time
 }
 
-type statusResponse struct {
-	Version   string    `json:"version"`
-	StartedAt time.Time `json:"started_at"`
+type Catalogs interface {
+	Status() catalog.Status
 }
 
-func New(info Info, ready func() bool) http.Handler {
+type statusResponse struct {
+	Version   string        `json:"version"`
+	StartedAt time.Time     `json:"started_at"`
+	Catalog   catalogStatus `json:"catalog"`
+}
+
+type catalogStatus struct {
+	Version   string    `json:"version,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
+	CheckedAt time.Time `json:"checked_at,omitzero"`
+	Error     string    `json:"error,omitempty"`
+}
+
+func New(info Info, ready func() bool, catalogs Catalogs) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		if !ready() {
@@ -26,7 +40,11 @@ func New(info Info, ready func() bool) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, statusResponse(info))
+		writeJSON(w, http.StatusOK, statusResponse{
+			Version:   info.Version,
+			StartedAt: info.StartedAt,
+			Catalog:   catalogStatus(catalogs.Status()),
+		})
 	})
 	return problemFallback(mux)
 }
