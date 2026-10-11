@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lscythe/jalvio-service/internal/geo"
 )
 
 // Parse builds a Catalog from a GTFS zip, rejecting feeds with missing or
@@ -24,7 +26,7 @@ func Parse(data []byte) (*Catalog, error) {
 		zr:        zr,
 		routes:    map[string]*Route{},
 		stops:     map[string]*Stop{},
-		shapes:    map[string][]sequenced[Point]{},
+		shapes:    map[string][]sequenced[geo.Point]{},
 		trips:     map[string]*Trip{},
 		stopTimes: map[string][]sequenced[string]{},
 	}
@@ -59,7 +61,7 @@ type parser struct {
 	zr        *zip.Reader
 	routes    map[string]*Route
 	stops     map[string]*Stop
-	shapes    map[string][]sequenced[Point]
+	shapes    map[string][]sequenced[geo.Point]
 	trips     map[string]*Trip
 	stopTimes map[string][]sequenced[string]
 }
@@ -137,7 +139,7 @@ func (p *parser) readShapes() error {
 			return r.errorf("invalid shape_pt_lon %q", r.get("shape_pt_lon"))
 		}
 		id := r.get("shape_id")
-		p.shapes[id] = append(p.shapes[id], sequenced[Point]{seq, Point{Lat: lat, Lon: lon}})
+		p.shapes[id] = append(p.shapes[id], sequenced[geo.Point]{seq, geo.Point{Lat: lat, Lon: lon}})
 		return nil
 	})
 }
