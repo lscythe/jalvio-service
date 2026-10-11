@@ -1,0 +1,8 @@
+shape_id,shape_pt_sequence,shape_pt_lat,shape_pt_lon,shape_dist_traveled
+1-R01_shp,1,-6.193,106.823,
+1-R01_shp,0,-6.243,106.801,
+1-R01_shp,2,-6.137,106.813,
+1-R02_shp,0,-6.137,106.813,
+1-R02_shp,1,-6.243,106.801,
+JAK.18-R01_shp,0,-6.257,106.853,
+JAK.18-R01_shp,1,-6.236,106.828,

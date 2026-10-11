@@ -1,0 +1,3 @@
+route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_url,route_color,route_text_color,route_sort_order
+1,AG,1,Blok M - Kota,BRT,3,,D21F3C,FFFFFF,1
+JAK.18,AG,JAK.18,Kalibata - Kuningan,Mikrotrans,3,,62C2D2,000000,2
