@@ -22,7 +22,8 @@ jalvio-service is a self-hosted Go backend that serves public transit data to th
 
 - Tests are deterministic and use local fixtures only. They never contact external services.
 - Live checks against real upstreams are opt-in and run only when explicitly requested.
-- Run formatting, lint, tests, and the race detector before proposing a change.
+- Every package has tests; packages outside `cmd/` keep at least 80% statement coverage.
+- Run `mise run check` (formatting, lint, race-enabled tests, coverage gate, vulnerability scan) before proposing a change.
 
 ## Security
 
