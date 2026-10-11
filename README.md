@@ -14,15 +14,17 @@ mise install
 go run ./cmd/jalvio
 ```
 
-| Variable               | Default                          | Purpose                                         |
-| ---------------------- | -------------------------------- | ----------------------------------------------- |
-| `JALVIO_LISTEN`        | `:8080`                          | HTTP listen address                             |
-| `JALVIO_DATA_DIR`      | `./data`                         | Stored feed, MQTT client ID, and snapshots      |
-| `GTFS_URL`             | official GTFS zip   | Static feed source                              |
-| `GTFS_REFRESH`         | `24h`                            | How often the feed is checked                   |
-| `MQTT_URL`             | `wss://broker.example.com:8084/mqtt`  | Live bus feed; `disabled` turns it off          |
-| `MQTT_TLS_SERVER_NAME` | `broker.example.com`                  | Name the broker certificate is verified against |
-| `MQTT_DIAL_ADDRESS`    | empty                            | `host:port` to dial instead of the URL's host   |
+| Variable               | Default  | Purpose                                                     |
+| ---------------------- | -------- | ----------------------------------------------------------- |
+| `GTFS_URL`             | required | Static GTFS feed (zip) to load and refresh                  |
+| `GTFS_REFRESH`         | `24h`    | How often the feed is checked                               |
+| `MQTT_URL`             | empty    | Live bus feed broker (`ws://` or `wss://`); empty turns it off |
+| `MQTT_TLS_SERVER_NAME` | URL host | Name the broker certificate is verified against             |
+| `MQTT_DIAL_ADDRESS`    | empty    | `host:port` to dial instead of the URL's host               |
+| `JALVIO_LISTEN`        | `:8080`  | HTTP listen address                                         |
+| `JALVIO_DATA_DIR`      | `./data` | Stored feed, MQTT client ID, and snapshots                  |
+
+Upstream endpoints are deployment configuration and are not part of this repository.
 
 ## Endpoints
 

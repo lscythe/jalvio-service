@@ -22,7 +22,7 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		Listen:  valueOr(getenv("JALVIO_LISTEN"), ":8080"),
 		DataDir: valueOr(getenv("JALVIO_DATA_DIR"), "./data"),
-		GTFSURL: valueOr(getenv("GTFS_URL"), "https://gtfs.example.com/feed.zip"),
+		GTFSURL: getenv("GTFS_URL"),
 	}
 	if _, _, err := net.SplitHostPort(cfg.Listen); err != nil {
 		return Config{}, fmt.Errorf("JALVIO_LISTEN: %w", err)
@@ -36,13 +36,13 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.GTFSRefresh = refresh
 
-	cfg.MQTTURL = valueOr(getenv("MQTT_URL"), "wss://broker.example.com:8084/mqtt")
-	if cfg.MQTTURL == "disabled" {
-		cfg.MQTTURL = ""
-	} else if u, err := url.Parse(cfg.MQTTURL); err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
-		return Config{}, fmt.Errorf("MQTT_URL: %q is not a ws(s) URL or \"disabled\"", cfg.MQTTURL)
+	cfg.MQTTURL = getenv("MQTT_URL")
+	if cfg.MQTTURL != "" {
+		if u, err := url.Parse(cfg.MQTTURL); err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
+			return Config{}, fmt.Errorf("MQTT_URL: %q is not a ws(s) URL", cfg.MQTTURL)
+		}
 	}
-	cfg.MQTTServerName = valueOr(getenv("MQTT_TLS_SERVER_NAME"), "broker.example.com")
+	cfg.MQTTServerName = getenv("MQTT_TLS_SERVER_NAME")
 	cfg.MQTTDialAddress = getenv("MQTT_DIAL_ADDRESS")
 	if cfg.MQTTDialAddress != "" {
 		if _, _, err := net.SplitHostPort(cfg.MQTTDialAddress); err != nil {
