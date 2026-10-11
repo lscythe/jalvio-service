@@ -11,6 +11,7 @@ type Catalog struct {
 	stops      []Stop
 	stopIndex  map[string]int
 	trips      map[string]Trip
+	search     []searchEntry
 }
 
 type Route struct {

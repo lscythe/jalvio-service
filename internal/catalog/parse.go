@@ -297,5 +297,6 @@ func (p *parser) build(version string) *Catalog {
 	for id, t := range p.trips {
 		c.trips[id] = *t
 	}
+	c.search = newSearchIndex(c.routes, c.stops)
 	return c
 }
