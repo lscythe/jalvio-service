@@ -24,9 +24,14 @@ type Config struct {
 	StopInfoSyncAt time.Duration
 }
 
+// ListenAddress returns JALVIO_LISTEN or its default, without validating it.
+func ListenAddress(getenv func(string) string) string {
+	return valueOr(getenv("JALVIO_LISTEN"), ":8080")
+}
+
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Listen:  valueOr(getenv("JALVIO_LISTEN"), ":8080"),
+		Listen:  ListenAddress(getenv),
 		DataDir: valueOr(getenv("JALVIO_DATA_DIR"), "./data"),
 		GTFSURL: getenv("GTFS_URL"),
 	}

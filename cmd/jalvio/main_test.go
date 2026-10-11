@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -197,8 +198,47 @@ func TestRunRejectsInvalidConfig(t *testing.T) {
 		}
 		return ""
 	}
-	if err := run(t.Context(), getenv, discard); err == nil {
+	if err := run(t.Context(), nil, getenv, discard); err == nil {
 		t.Fatal("run succeeded with invalid config")
+	}
+}
+
+func listenOn(addr string) func(string) string {
+	return func(key string) string {
+		if key == "JALVIO_LISTEN" {
+			return addr
+		}
+		return ""
+	}
+}
+
+func TestHealthcheck(t *testing.T) {
+	base, _ := startService(t, "", "")
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(base, "http://"))
+
+	if err := run(t.Context(), []string{"healthcheck"}, listenOn(":"+port), discard); err != nil {
+		t.Errorf("healthcheck of a ready service: %v", err)
+	}
+
+	unready := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer unready.Close()
+	if err := run(t.Context(), []string{"healthcheck"}, listenOn(unready.Listener.Addr().String()), discard); err == nil {
+		t.Error("healthcheck of an unready service succeeded")
+	}
+
+	closed := listen(t)
+	addr := closed.Addr().String()
+	_ = closed.Close()
+	if err := run(t.Context(), []string{"healthcheck"}, listenOn(addr), discard); err == nil {
+		t.Error("healthcheck with nothing listening succeeded")
+	}
+}
+
+func TestRunRejectsUnknownCommand(t *testing.T) {
+	if err := run(t.Context(), []string{"serve-forever"}, listenOn(":0"), discard); err == nil {
+		t.Error("run accepted an unknown command")
 	}
 }
 
