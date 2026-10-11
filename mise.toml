@@ -36,5 +36,9 @@ run = "go run ./cmd/covergate"
 [tasks.vuln]
 run = "govulncheck ./..."
 
+[tasks.live]
+description = "Check the real upstreams configured in the environment (opt-in)"
+run = "go test -tags live -count=1 -v ./test/live"
+
 [tasks.check]
 depends = ["fmt-check", "lint", "cover-check", "vuln"]
