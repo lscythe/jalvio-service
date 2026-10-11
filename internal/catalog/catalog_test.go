@@ -1,69 +1,21 @@
 package catalog_test
 
 import (
-	"archive/zip"
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
+	"github.com/lscythe/jalvio-service/internal/catalog/catalogtest"
 )
-
-// feedZip zips testdata/feed, replacing the named files' contents and leaving
-// out the omitted ones.
-func feedZip(t *testing.T, replace map[string]string, omit ...string) []byte {
-	t.Helper()
-	paths, err := filepath.Glob("testdata/feed/*.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	for _, path := range paths {
-		name := filepath.Base(path)
-		if contains(omit, name) {
-			continue
-		}
-		content, ok := replace[name]
-		if !ok {
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			content = string(raw)
-		}
-		w, err := zw.Create(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Write([]byte(content)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
 
 func parseFixture(t *testing.T) *catalog.Catalog {
 	t.Helper()
-	c, err := catalog.Parse(feedZip(t, nil))
+	c, err := catalog.Parse(catalogtest.Feed(t, nil))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -71,7 +23,7 @@ func parseFixture(t *testing.T) *catalog.Catalog {
 }
 
 func TestParseVersionIsZipHash(t *testing.T) {
-	data := feedZip(t, nil)
+	data := catalogtest.Feed(t, nil)
 	c, err := catalog.Parse(data)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -194,7 +146,7 @@ func TestParseAcceptsByteOrderMark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := catalog.Parse(feedZip(t, map[string]string{"routes.txt": "\xEF\xBB\xBF" + string(raw)}))
+	c, err := catalog.Parse(catalogtest.Feed(t, map[string]string{"routes.txt": "\xEF\xBB\xBF" + string(raw)}))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -312,7 +264,7 @@ func TestParseRejectsInvalidFeed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			data := []byte("not a zip")
 			if tt.name != "not a zip" {
-				data = feedZip(t, tt.replace, tt.omit...)
+				data = catalogtest.Feed(t, tt.replace, tt.omit...)
 			}
 			_, err := catalog.Parse(data)
 			if err == nil {
