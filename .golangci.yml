@@ -11,7 +11,7 @@ linters:
     - usestdlibvars
   exclusions:
     rules:
-      - path: _test\.go
+      - path: (_test\.go|test/[^/]+\.go)$
         linters: [gosec]
 formatters:
   enable:

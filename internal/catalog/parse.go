@@ -33,8 +33,12 @@ func Parse(data []byte) (*Catalog, error) {
 			return nil, err
 		}
 	}
+	return p.build(version(data)), nil
+}
+
+func version(data []byte) string {
 	sum := sha256.Sum256(data)
-	return p.build(hex.EncodeToString(sum[:])), nil
+	return hex.EncodeToString(sum[:])
 }
 
 type sequenced[T any] struct {
