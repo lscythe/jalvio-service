@@ -1,0 +1,26 @@
+[tools]
+go = "1.27.2"
+"go:mvdan.cc/gofumpt" = "0.11.0"
+"go:github.com/golangci/golangci-lint/v2/cmd/golangci-lint" = "2.14.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.7.0"
+
+[tasks.fmt]
+run = "gofumpt -w ."
+
+[tasks.fmt-check]
+run = "files=\"$(gofumpt -l .)\"; test -z \"$files\" || { printf 'Unformatted files:\\n%s\\n' \"$files\"; exit 1; }"
+
+[tasks.lint]
+run = "golangci-lint run ./..."
+
+[tasks.test]
+run = "go test ./..."
+
+[tasks.race]
+run = "go test -race ./..."
+
+[tasks.vuln]
+run = "govulncheck ./..."
+
+[tasks.check]
+depends = ["fmt-check", "lint", "race", "vuln"]
