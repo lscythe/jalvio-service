@@ -1,0 +1,38 @@
+name: Bug report
+description: Something in the service behaves incorrectly.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the request and response if it is an API problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the service with ...
+        2. Call ...
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of /v1/status
+      description: Shows the version and data freshness. Remove anything private.
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove tokens, credentials, and personal data before pasting.
+      render: text

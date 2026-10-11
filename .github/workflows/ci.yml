@@ -17,4 +17,13 @@ jobs:
           version: 2026.8.12
           install: true
           cache: true
-      - run: mise run check
+      - run: mise run fmt-check
+      - run: mise run lint
+      - run: mise run vuln
+      - run: mise run cover
+      - uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          github-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
+          file: coverage.out
+          format: golang
+          fail-on-error: false
