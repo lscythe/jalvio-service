@@ -1,0 +1,50 @@
+{
+  "latitude": -6.1851,
+  "longitude": 106.7967,
+  "snap_latitude": -6.18512,
+  "snap_longitude": 106.79674,
+  "bearing": 354,
+  "estimated_time_next_stops": 0,
+  "estimated_distance_next_stops": 67,
+  "curr_stops": "",
+  "next_stops": "H00204S-Kota Bambu Arah Utara",
+  "prev_stops": "H00220S-Kemanggisan Arah Utara",
+  "passengers_status": "",
+  "route_code": "3F",
+  "route_long_name": "Kalideres - Senayan Bank Jakarta",
+  "route_color": "FDCB1C",
+  "route_text_color": "000000",
+  "trip_short_name": "Kalideres - Senayan Bank Jakarta - Kalideres",
+  "trip_headsign": "Kalideres",
+  "bus_type": "Maxi Bus",
+  "type": "BRT",
+  "trip_id": "3F-L01",
+  "bus_body_no": "TST-001",
+  "stops": [
+    {
+      "name": "Kota Bambu Arah Utara",
+      "stop_id": "H00204S",
+      "latitude": -6.184506,
+      "longitude": 106.796739,
+      "stop_sequence": 21,
+      "time_from_prev": 0,
+      "time_wait": 0,
+      "headsign": "Kalideres",
+      "parent_stop_id": "G00436",
+      "parent_stop_name": "Kota Bambu Arah Utara",
+      "eta": 1
+    }
+  ],
+  "timestamp": 1785355911000,
+  "last_update": 1785355910000,
+  "eta_by_parent_stop_id": {
+    "H00204S": 1,
+    "H00210S": 2,
+    "H00235P": 11
+  },
+  "next_parent_gate": "H00204S",
+  "next_parent_gate_eta": 1,
+  "next_gate": "G00436",
+  "next_gate_eta": 1,
+  "direction": "inbound"
+}

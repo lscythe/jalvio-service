@@ -11,6 +11,7 @@ import (
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/catalog/catalogtest"
+	"github.com/lscythe/jalvio-service/internal/geo"
 )
 
 func parseFixture(t *testing.T) *catalog.Catalog {
@@ -118,7 +119,7 @@ func TestParseTrips(t *testing.T) {
 		Name:      "Blok M - Kota",
 		Direction: 0,
 		StopIDs:   []string{"G00001", "G00002", "G00003"},
-		Shape: []catalog.Point{
+		Shape: []geo.Point{
 			{Lat: -6.243, Lon: 106.801},
 			{Lat: -6.193, Lon: 106.823},
 			{Lat: -6.137, Lon: 106.813},

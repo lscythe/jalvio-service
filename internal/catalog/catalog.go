@@ -1,6 +1,10 @@
 package catalog
 
-import "time"
+import (
+	"time"
+
+	"github.com/lscythe/jalvio-service/internal/geo"
+)
 
 // Catalog is an immutable snapshot of the static GTFS feed. Callers must not
 // modify the slices it returns.
@@ -54,13 +58,8 @@ type Trip struct {
 	Name      string
 	Direction int
 	StopIDs   []string
-	Shape     []Point
+	Shape     []geo.Point
 	Headways  []Headway
-}
-
-type Point struct {
-	Lat float64
-	Lon float64
 }
 
 // Headway is a service window. Start and End are offsets from midnight of the
