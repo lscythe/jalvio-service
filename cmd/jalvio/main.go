@@ -29,13 +29,14 @@ import (
 var version = "dev"
 
 const (
-	shutdownTimeout  = 10 * time.Second
-	feedFetchTimeout = 2 * time.Minute
-	feedRetryDelay   = time.Minute
-	busFlushInterval = time.Second
-	busExpireEvery   = 5 * time.Second
-	stopAPITimeout   = 15 * time.Second
-	stopRetryDelay   = 15 * time.Minute
+	shutdownTimeout    = 10 * time.Second
+	healthcheckTimeout = 3 * time.Second
+	feedFetchTimeout   = 2 * time.Minute
+	feedRetryDelay     = time.Minute
+	busFlushInterval   = time.Second
+	busExpireEvery     = 5 * time.Second
+	stopAPITimeout     = 15 * time.Second
+	stopRetryDelay     = 15 * time.Minute
 )
 
 // Upstream request spacing for the stop facilities sync; tests shorten it.
@@ -49,13 +50,21 @@ func main() {
 	defer stop()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	if err := run(ctx, os.Getenv, logger); err != nil {
+	if err := run(ctx, os.Args[1:], os.Getenv, logger); err != nil {
 		logger.Error("exit", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) error {
+// run serves by default; "healthcheck" instead probes a running instance,
+// for container images that have no HTTP client.
+func run(ctx context.Context, args []string, getenv func(string) string, logger *slog.Logger) error {
+	if len(args) > 0 {
+		if args[0] != "healthcheck" {
+			return fmt.Errorf("unknown command %q", args[0])
+		}
+		return healthcheck(ctx, config.ListenAddress(getenv))
+	}
 	cfg, err := config.Load(getenv)
 	if err != nil {
 		return err
@@ -173,6 +182,32 @@ func serve(ctx context.Context, ln net.Listener, handler http.Handler, draining 
 	}
 	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
 		return err
+	}
+	return nil
+}
+
+// healthcheck succeeds when the instance listening on addr reports ready.
+func healthcheck(ctx context.Context, addr string) error {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	ctx, cancel := context.WithTimeout(ctx, healthcheckTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("not ready: %s", resp.Status)
 	}
 	return nil
 }

@@ -2,5 +2,6 @@
 /data/
 .env
 .env.*
+!.env.example
 coverage.out
 coverage.raw

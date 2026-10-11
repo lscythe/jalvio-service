@@ -23,6 +23,15 @@ func env(vars map[string]string) func(string) string {
 	}
 }
 
+func TestListenAddress(t *testing.T) {
+	if got := config.ListenAddress(env(nil)); got != ":8080" {
+		t.Errorf("default = %q, want :8080", got)
+	}
+	if got := config.ListenAddress(env(map[string]string{"JALVIO_LISTEN": "127.0.0.1:9000"})); got != "127.0.0.1:9000" {
+		t.Errorf("override = %q, want 127.0.0.1:9000", got)
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	cfg, err := config.Load(env(nil))
 	if err != nil {

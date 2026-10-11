@@ -29,6 +29,15 @@ go run ./cmd/jalvio
 
 Upstream endpoints are deployment configuration and are not part of this repository.
 
+### Docker
+
+```sh
+cp .env.example .env # then fill in the upstream endpoints
+docker compose up -d --build
+```
+
+The image is distroless, runs as a non-root user, and keeps its state in the `/data` volume. Keep that volume across upgrades so restarts don't depend on the upstreams. `jalvio healthcheck` exits 0 when the instance is ready and backs the image's `HEALTHCHECK`.
+
 ## Endpoints
 
 | Path         | Response                                                            |

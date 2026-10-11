@@ -1,0 +1,20 @@
+services:
+  jalvio:
+    build:
+      context: .
+      args:
+        VERSION: ${JALVIO_VERSION:-dev}
+    image: jalvio-service:${JALVIO_VERSION:-dev}
+    env_file: .env
+    ports:
+      - "${JALVIO_PORT:-8080}:8080"
+    volumes:
+      - jalvio-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+volumes:
+  jalvio-data:
