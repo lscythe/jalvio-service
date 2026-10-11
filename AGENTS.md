@@ -28,6 +28,7 @@ jalvio-service is a self-hosted Go backend that serves public transit data to th
 ## Security
 
 - Never commit secrets, tokens, credentials, or real environment files.
+- Never commit real upstream endpoints (broker, API, or feed URLs and hostnames), not even as defaults, in tests, or in docs. They come from the environment; tests use reserved names such as `example.com` and `.invalid`.
 - Never log credentials or raw upstream payloads.
 
 ## Repository
