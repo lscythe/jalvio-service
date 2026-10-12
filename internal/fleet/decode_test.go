@@ -2,9 +2,9 @@ package fleet_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -135,35 +135,41 @@ func TestDecodeRejectsMalformedMessages(t *testing.T) {
 		return func(*testing.T) []byte { return []byte(s) }
 	}
 	tests := []struct {
-		name    string
-		topic   string
-		payload func(*testing.T) []byte
-		wantErr string
+		name       string
+		topic      string
+		payload    func(*testing.T) []byte
+		wantErr    error
+		wantReason string
 	}{
-		{name: "wrong topic prefix", topic: "/other/0026-0028/3F/3F-L01/TST-001", payload: fixture(nil), wantErr: "topic"},
-		{name: "short topic", topic: "/mobile_armada/3F/TST-001", payload: fixture(nil), wantErr: "topic"},
-		{name: "plate mismatch", topic: "/mobile_armada/0026-0028/3F/3F-L01/TST-999", payload: fixture(nil), wantErr: "plate"},
-		{name: "invalid JSON", topic: topic, payload: raw("{"), wantErr: "payload"},
-		{name: "no timestamp", topic: topic, payload: fixture(map[string]any{"timestamp": nil, "last_update": nil}), wantErr: "timestamp"},
-		{name: "bad timestamp", topic: topic, payload: fixture(map[string]any{"timestamp": "soon", "last_update": nil}), wantErr: "timestamp"},
+		{"wrong topic prefix", "/other/0026-0028/3F/3F-L01/TST-001", fixture(nil), fleet.ErrTopic, "topic"},
+		{"short topic", "/mobile_armada/3F/TST-001", fixture(nil), fleet.ErrTopic, "topic"},
+		{"plate mismatch", "/mobile_armada/0026-0028/3F/3F-L01/TST-999", fixture(nil), fleet.ErrPlate, "plate_mismatch"},
+		{"invalid JSON", topic, raw("{"), fleet.ErrPayload, "payload"},
+		{"no timestamp", topic, fixture(map[string]any{"timestamp": nil, "last_update": nil}), fleet.ErrNoTimestamp, "no_timestamp"},
+		{"bad timestamp", topic, fixture(map[string]any{"timestamp": "soon", "last_update": nil}), fleet.ErrPayload, "payload"},
 		{
-			name:    "no position",
-			topic:   topic,
-			payload: fixture(map[string]any{"latitude": 0, "longitude": 0, "snap_latitude": 0, "snap_longitude": 0}),
-			wantErr: "position",
+			"no position", topic,
+			fixture(map[string]any{"latitude": 0, "longitude": 0, "snap_latitude": 0, "snap_longitude": 0}),
+			fleet.ErrNoPosition, "no_position",
 		},
-		{name: "no trip", topic: topic, payload: fixture(map[string]any{"trip_id": ""}), wantErr: "trip"},
-		{name: "no route", topic: topic, payload: fixture(map[string]any{"route_code": ""}), wantErr: "route"},
+		{"no trip", topic, fixture(map[string]any{"trip_id": ""}), fleet.ErrNoTrip, "no_trip"},
+		{"no route", topic, fixture(map[string]any{"route_code": ""}), fleet.ErrNoRoute, "no_route"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := fleet.Decode(tt.topic, tt.payload(t))
-			if err == nil {
-				t.Fatal("Decode succeeded, want error")
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
-			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("error = %q, want it to mention %q", err, tt.wantErr)
+			if got := fleet.RejectReason(err); got != tt.wantReason {
+				t.Errorf("RejectReason = %q, want %q", got, tt.wantReason)
 			}
 		})
+	}
+}
+
+func TestRejectReasonOfOtherErrors(t *testing.T) {
+	if got := fleet.RejectReason(errors.New("boom")); got != "other" {
+		t.Errorf("RejectReason = %q, want other", got)
 	}
 }

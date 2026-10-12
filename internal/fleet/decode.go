@@ -12,6 +12,41 @@ import (
 	"github.com/lscythe/jalvio-service/internal/geo"
 )
 
+// Reasons Decode rejects a message.
+var (
+	ErrTopic       = errors.New("unexpected topic shape")
+	ErrPayload     = errors.New("invalid payload")
+	ErrPlate       = errors.New("topic plate does not match the payload")
+	ErrNoRoute     = errors.New("missing route_code")
+	ErrNoTrip      = errors.New("missing trip_id")
+	ErrNoTimestamp = errors.New("missing timestamp")
+	ErrNoPosition  = errors.New("missing position")
+)
+
+var rejectReasons = []struct {
+	err    error
+	reason string
+}{
+	{ErrTopic, "topic"},
+	{ErrPayload, "payload"},
+	{ErrPlate, "plate_mismatch"},
+	{ErrNoRoute, "no_route"},
+	{ErrNoTrip, "no_trip"},
+	{ErrNoTimestamp, "no_timestamp"},
+	{ErrNoPosition, "no_position"},
+}
+
+// RejectReason names the reason behind a Decode error, from a fixed set so
+// it can be counted and reported without any payload content.
+func RejectReason(err error) string {
+	for _, r := range rejectReasons {
+		if errors.Is(err, r.err) {
+			return r.reason
+		}
+	}
+	return "other"
+}
+
 // Update is one bus position report from the live feed.
 type Update struct {
 	Plate       string
@@ -70,31 +105,31 @@ func (e *epochMillis) UnmarshalJSON(b []byte) error {
 func Decode(topic string, data []byte) (Update, error) {
 	parts := strings.Split(topic, "/")
 	if len(parts) != 6 || parts[0] != "" || parts[1] != "mobile_armada" {
-		return Update{}, errors.New("unexpected topic shape")
+		return Update{}, ErrTopic
 	}
 	var p payload
 	if err := json.Unmarshal(data, &p); err != nil {
-		return Update{}, fmt.Errorf("invalid payload: %w", err)
+		return Update{}, fmt.Errorf("%w: %w", ErrPayload, err)
 	}
 
 	switch {
 	case p.BusBodyNo == "" || p.BusBodyNo != parts[5]:
-		return Update{}, errors.New("topic plate does not match the payload")
+		return Update{}, ErrPlate
 	case p.RouteCode == "":
-		return Update{}, errors.New("missing route_code")
+		return Update{}, ErrNoRoute
 	case p.TripID == "":
-		return Update{}, errors.New("missing trip_id")
+		return Update{}, ErrNoTrip
 	}
 	observed := p.Timestamp
 	if observed <= 0 {
 		observed = p.LastUpdate
 	}
 	if observed <= 0 {
-		return Update{}, errors.New("missing timestamp")
+		return Update{}, ErrNoTimestamp
 	}
 	pos, ok := position(p)
 	if !ok {
-		return Update{}, errors.New("missing position")
+		return Update{}, ErrNoPosition
 	}
 
 	var etas map[string]int

@@ -95,6 +95,7 @@ func TestStatus(t *testing.T) {
 			catalog: catalog.Status{Version: "abc", UpdatedAt: startedAt, CheckedAt: checked},
 			feed: fakeFeed{mqttfeed.Status{
 				Connected: true, LastMessageAt: lastMessage, Reconnects: 2, Messages: 1500, Malformed: 3,
+				Rejected: map[string]int64{"no_position": 2, "payload": 1},
 			}},
 			stops: fakeStopInfo{stopinfo.Status{
 				SyncedAt: startedAt, CheckedAt: checked, Error: "matched 1 of 272 halte, below 95%",
@@ -102,7 +103,8 @@ func TestStatus(t *testing.T) {
 			}},
 			buses: 1412,
 			want: prefix + `"catalog":{"version":"abc","updated_at":"2026-10-12T03:00:00Z","checked_at":"2026-10-12T04:00:00Z"},` +
-				`"feed":{"state":"connected","last_message_at":"2026-10-12T05:00:00Z","reconnects":2,"messages":1500,"malformed":3,"buses":1412},` +
+				`"feed":{"state":"connected","last_message_at":"2026-10-12T05:00:00Z","reconnects":2,"messages":1500,"malformed":3,` +
+				`"rejected":{"no_position":2,"payload":1},"buses":1412},` +
 				`"stop_facilities":{"state":"synced","synced_at":"2026-10-12T03:00:00Z","checked_at":"2026-10-12T04:00:00Z",` +
 				`"error":"matched 1 of 272 halte, below 95%","requests":6,"matched":1,"unmatched":271}}`,
 		},
