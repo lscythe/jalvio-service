@@ -58,12 +58,13 @@ type catalogStatus struct {
 }
 
 type feedStatus struct {
-	State         string    `json:"state"`
-	LastMessageAt time.Time `json:"last_message_at,omitzero"`
-	Reconnects    int       `json:"reconnects"`
-	Messages      int64     `json:"messages"`
-	Malformed     int64     `json:"malformed"`
-	Buses         int       `json:"buses"`
+	State         string           `json:"state"`
+	LastMessageAt time.Time        `json:"last_message_at,omitzero"`
+	Reconnects    int              `json:"reconnects"`
+	Messages      int64            `json:"messages"`
+	Malformed     int64            `json:"malformed"`
+	Rejected      map[string]int64 `json:"rejected,omitempty"`
+	Buses         int              `json:"buses"`
 }
 
 type stopsStatus struct {
@@ -112,6 +113,7 @@ func newFeedStatus(feed Feed, buses int) feedStatus {
 		Reconnects:    st.Reconnects,
 		Messages:      st.Messages,
 		Malformed:     st.Malformed,
+		Rejected:      st.Rejected,
 		Buses:         buses,
 	}
 }

@@ -10,13 +10,17 @@ package live_test
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/fleet"
@@ -27,6 +31,14 @@ import (
 )
 
 const userAgent = "jalvio-service/live-test"
+
+// testWriter sends log output to the test log, one call per line.
+type testWriter struct{ t *testing.T }
+
+func (w testWriter) Write(p []byte) (int, error) {
+	w.t.Log(strings.TrimRight(string(p), "\n"))
+	return len(p), nil
+}
 
 func require(t *testing.T, keys ...string) {
 	t.Helper()
@@ -69,21 +81,30 @@ func TestBroker(t *testing.T) {
 	if d, err := time.ParseDuration(os.Getenv("LIVE_MQTT_DURATION")); err == nil {
 		duration = d
 	}
+	// Connection events and client errors explain reconnects. Neither logs
+	// payloads; the client's debug log, which does, stays off.
+	out := testWriter{t}
+	mqtt.ERROR = log.New(out, "mqtt error: ", 0)
+	mqtt.CRITICAL = log.New(out, "mqtt critical: ", 0)
+	mqtt.WARN = log.New(out, "mqtt warn: ", 0)
+	t.Cleanup(func() { mqtt.ERROR, mqtt.CRITICAL, mqtt.WARN = mqtt.NOOPLogger{}, mqtt.NOOPLogger{}, mqtt.NOOPLogger{} })
+
 	buses := fleet.New()
 	live := mqttfeed.New(mqttfeed.Config{
 		URL:           os.Getenv("MQTT_URL"),
 		TLSServerName: os.Getenv("MQTT_TLS_SERVER_NAME"),
 		DialAddress:   os.Getenv("MQTT_DIAL_ADDRESS"),
 		ClientID:      "jalvio-live-test",
-	}, buses, slog.New(slog.DiscardHandler))
+	}, buses, slog.New(slog.NewTextHandler(out, nil)))
 
 	ctx, cancel := context.WithTimeout(t.Context(), duration)
 	defer cancel()
 	live.Run(ctx)
 
 	st := live.Status()
-	t.Logf("seconds=%.0f messages=%d malformed=%d buses=%d reconnects=%d",
-		duration.Seconds(), st.Messages, st.Malformed, buses.Len(), st.Reconnects)
+	t.Logf("seconds=%.0f messages=%d malformed=%d rejected=%v buses=%d reconnects=%d",
+		duration.Seconds(), st.Messages, st.Malformed, st.Rejected, buses.Len(), st.Reconnects)
+	// Reports without a GPS fix are skipped by design and don't count here.
 	if st.Messages == 0 {
 		t.Error("no messages received")
 	}

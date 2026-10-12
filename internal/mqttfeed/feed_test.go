@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"testing"
 	"time"
@@ -17,6 +18,8 @@ const (
 	busTopic   = "/mobile_armada/0026-0028/3F/3F-L01/TST-001"
 	busPayload = `{"bus_body_no":"TST-001","route_code":"3F","trip_id":"3F-L01",` +
 		`"latitude":-6.2,"longitude":106.8,"timestamp":1785355911000}`
+	noFixPayload = `{"bus_body_no":"TST-001","route_code":"3F","trip_id":"3F-L01",` +
+		`"latitude":0,"longitude":0,"timestamp":1785355912000}`
 )
 
 // startFeed runs a feed against b. The broker URL names an unresolvable host
@@ -83,14 +86,23 @@ func TestFeedConnectsAndAppliesMessages(t *testing.T) {
 
 	b.publish(busTopic, []byte(busPayload))
 	b.publish(busTopic, []byte("not json"))
+	b.publish(busTopic, []byte(noFixPayload))
 
-	waitFor(t, "both messages", func() bool { return feed.Status().Messages == 2 })
+	waitFor(t, "all messages", func() bool { return feed.Status().Messages == 3 })
 	if _, ok := buses.Bus("TST-001"); !ok {
 		t.Error("bus from the feed not applied")
 	}
 	st := feed.Status()
 	if !st.Connected || st.Malformed != 1 || st.LastMessageAt.IsZero() {
 		t.Errorf("status = %+v, want connected with 1 malformed message and a last message time", st)
+	}
+	// A report without a GPS fix is skipped but is not malformed.
+	if want := map[string]int64{"payload": 1, "no_position": 1}; !reflect.DeepEqual(st.Rejected, want) {
+		t.Errorf("rejected = %v, want %v", st.Rejected, want)
+	}
+	st.Rejected["payload"] = 99
+	if got := feed.Status().Rejected["payload"]; got != 1 {
+		t.Errorf("Status shares its rejected map with the feed: got %d after a caller changed it", got)
 	}
 }
 

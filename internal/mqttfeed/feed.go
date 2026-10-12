@@ -6,7 +6,9 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"log/slog"
+	"maps"
 	"net"
 	"net/url"
 	"sync"
@@ -46,7 +48,11 @@ type Status struct {
 	// Reconnects counts reconnect attempts since start.
 	Reconnects int
 	Messages   int64
-	Malformed  int64
+	// Malformed counts messages that could not be decoded.
+	Malformed int64
+	// Rejected counts every skipped message by fleet.RejectReason,
+	// including reports without a GPS fix, which are not malformed.
+	Rejected map[string]int64
 }
 
 type Feed struct {
@@ -65,7 +71,9 @@ func New(cfg Config, sink Sink, logger *slog.Logger) *Feed {
 func (f *Feed) Status() Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.status
+	st := f.status
+	st.Rejected = maps.Clone(f.status.Rejected)
+	return st
 }
 
 // Run connects, retrying until it succeeds, and subscribes to the whole fleet
@@ -130,7 +138,14 @@ func (f *Feed) handle(_ mqtt.Client, m mqtt.Message) {
 	f.status.Messages++
 	f.status.LastMessageAt = now.UTC()
 	if err != nil {
-		f.status.Malformed++
+		// Buses without a GPS fix send zero coordinates; that is not malformed.
+		if !errors.Is(err, fleet.ErrNoPosition) {
+			f.status.Malformed++
+		}
+		if f.status.Rejected == nil {
+			f.status.Rejected = map[string]int64{}
+		}
+		f.status.Rejected[fleet.RejectReason(err)]++
 	}
 	f.mu.Unlock()
 	if err == nil {
