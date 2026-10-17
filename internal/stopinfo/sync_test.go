@@ -317,6 +317,7 @@ func TestFacilityKey(t *testing.T) {
 		"accessible for all":   "accessible_for_all",
 		"eskalator":            "escalator",
 		"Information Center":   "information_center",
+		"nursery":              "nursery",
 		" Ruang  Laktasi/ASI ": "ruang_laktasi_asi",
 	}
 	for name, want := range tests {
