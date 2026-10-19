@@ -90,7 +90,7 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 	var feed httpapi.Feed
 	var live *mqttfeed.Feed
 	if cfg.MQTTURL != "" {
-		clientID, err := mqttfeed.LoadOrCreateClientID(filepath.Join(cfg.DataDir, "mqtt-client-id"))
+		clientID, err := mqttfeed.LoadOrCreateClientID(filepath.Join(cfg.DataDir, "mqtt-client-id"), cfg.MQTTClientIDPrefix)
 		if err != nil {
 			return errors.Join(err, ln.Close())
 		}

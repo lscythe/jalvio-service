@@ -141,14 +141,14 @@ func TestRunDisconnectsOnCancel(t *testing.T) {
 func TestClientIDIsCreatedOnceAndReused(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mqtt-client-id")
 
-	first, err := mqttfeed.LoadOrCreateClientID(path)
+	first, err := mqttfeed.LoadOrCreateClientID(path, "client_")
 	if err != nil {
 		t.Fatalf("LoadOrCreateClientID: %v", err)
 	}
-	if !regexp.MustCompile(`^jalvio-[0-9a-f]{16}$`).MatchString(first) {
-		t.Errorf("client ID = %q, want jalvio- followed by 16 hex digits", first)
+	if !regexp.MustCompile(`^client_[0-9a-f]{16}$`).MatchString(first) {
+		t.Errorf("client ID = %q, want client_ followed by 16 hex digits", first)
 	}
-	second, err := mqttfeed.LoadOrCreateClientID(path)
+	second, err := mqttfeed.LoadOrCreateClientID(path, "client_")
 	if err != nil {
 		t.Fatalf("LoadOrCreateClientID: %v", err)
 	}
@@ -159,7 +159,29 @@ func TestClientIDIsCreatedOnceAndReused(t *testing.T) {
 	if err := os.WriteFile(path, []byte("  \n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mqttfeed.LoadOrCreateClientID(path); err == nil {
+	if _, err := mqttfeed.LoadOrCreateClientID(path, "client_"); err == nil {
 		t.Error("blank stored client ID accepted, want error")
+	}
+}
+
+func TestClientIDIsReplacedWhenThePrefixChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mqtt-client-id")
+	if err := os.WriteFile(path, []byte("jalvio-0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	id, err := mqttfeed.LoadOrCreateClientID(path, "client_")
+	if err != nil {
+		t.Fatalf("LoadOrCreateClientID: %v", err)
+	}
+	if !regexp.MustCompile(`^client_[0-9a-f]{16}$`).MatchString(id) {
+		t.Errorf("client ID = %q, want client_ followed by 16 hex digits", id)
+	}
+	again, err := mqttfeed.LoadOrCreateClientID(path, "client_")
+	if err != nil {
+		t.Fatalf("LoadOrCreateClientID: %v", err)
+	}
+	if again != id {
+		t.Errorf("client ID after restart = %q, want the replaced %q", again, id)
 	}
 }
