@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/lscythe/jalvio-service/compare/v0.1.0...v0.2.0) (2026-10-19)
+
+
+### Features
+
+* **mqttfeed:** count skipped messages by reason ([#19](https://github.com/lscythe/jalvio-service/issues/19)) ([cefc5ea](https://github.com/lscythe/jalvio-service/commit/cefc5ea96a1a4ce9b87f2fecc9948f95c4410f4e))
+
+
+### Bug Fixes
+
+* **mqttfeed:** make the client ID prefix configurable ([#23](https://github.com/lscythe/jalvio-service/issues/23)) ([df290f1](https://github.com/lscythe/jalvio-service/commit/df290f19d69e4c735fe4abdc23323c30f6b5c4ef))
+
 ## 0.1.0 (2026-10-11)
 
 
