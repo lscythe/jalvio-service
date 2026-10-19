@@ -38,11 +38,12 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	want := config.Config{
-		Listen:         ":8080",
-		DataDir:        "./data",
-		GTFSURL:        feedURL,
-		GTFSRefresh:    24 * time.Hour,
-		StopInfoSyncAt: 3 * time.Hour,
+		Listen:             ":8080",
+		DataDir:            "./data",
+		GTFSURL:            feedURL,
+		GTFSRefresh:        24 * time.Hour,
+		MQTTClientIDPrefix: "jalvio-",
+		StopInfoSyncAt:     3 * time.Hour,
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)
@@ -51,30 +52,32 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadOverrides(t *testing.T) {
 	cfg, err := config.Load(env(map[string]string{
-		"JALVIO_LISTEN":        "127.0.0.1:9000",
-		"JALVIO_DATA_DIR":      "/data",
-		"GTFS_REFRESH":         "6h",
-		"MQTT_URL":             "wss://broker.example.com:8084/mqtt",
-		"MQTT_TLS_SERVER_NAME": "cert.example.com",
-		"MQTT_DIAL_ADDRESS":    "192.0.2.10:8084",
-		"STOP_API_URL":         "https://stops.example.com/v1",
-		"STOP_API_APP_VERSION": "1.0.0",
-		"STOPINFO_SYNC_AT":     "04:30",
+		"JALVIO_LISTEN":         "127.0.0.1:9000",
+		"JALVIO_DATA_DIR":       "/data",
+		"GTFS_REFRESH":          "6h",
+		"MQTT_URL":              "wss://broker.example.com:8084/mqtt",
+		"MQTT_TLS_SERVER_NAME":  "cert.example.com",
+		"MQTT_DIAL_ADDRESS":     "192.0.2.10:8084",
+		"MQTT_CLIENT_ID_PREFIX": "client_",
+		"STOP_API_URL":          "https://stops.example.com/v1",
+		"STOP_API_APP_VERSION":  "1.0.0",
+		"STOPINFO_SYNC_AT":      "04:30",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	want := config.Config{
-		Listen:            "127.0.0.1:9000",
-		DataDir:           "/data",
-		GTFSURL:           feedURL,
-		GTFSRefresh:       6 * time.Hour,
-		MQTTURL:           "wss://broker.example.com:8084/mqtt",
-		MQTTServerName:    "cert.example.com",
-		MQTTDialAddress:   "192.0.2.10:8084",
-		StopAPIURL:        "https://stops.example.com/v1",
-		StopAPIAppVersion: "1.0.0",
-		StopInfoSyncAt:    4*time.Hour + 30*time.Minute,
+		Listen:             "127.0.0.1:9000",
+		DataDir:            "/data",
+		GTFSURL:            feedURL,
+		GTFSRefresh:        6 * time.Hour,
+		MQTTURL:            "wss://broker.example.com:8084/mqtt",
+		MQTTServerName:     "cert.example.com",
+		MQTTDialAddress:    "192.0.2.10:8084",
+		MQTTClientIDPrefix: "client_",
+		StopAPIURL:         "https://stops.example.com/v1",
+		StopAPIAppVersion:  "1.0.0",
+		StopInfoSyncAt:     4*time.Hour + 30*time.Minute,
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)

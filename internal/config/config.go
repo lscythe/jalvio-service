@@ -17,6 +17,8 @@ type Config struct {
 	MQTTURL         string
 	MQTTServerName  string
 	MQTTDialAddress string
+	// MQTTClientIDPrefix starts the generated client ID.
+	MQTTClientIDPrefix string
 	// StopAPIURL is empty when the stop facilities sync is disabled.
 	StopAPIURL        string
 	StopAPIAppVersion string
@@ -60,6 +62,7 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("MQTT_DIAL_ADDRESS: %w", err)
 		}
 	}
+	cfg.MQTTClientIDPrefix = valueOr(getenv("MQTT_CLIENT_ID_PREFIX"), "jalvio-")
 
 	cfg.StopAPIURL = getenv("STOP_API_URL")
 	cfg.StopAPIAppVersion = getenv("STOP_API_APP_VERSION")

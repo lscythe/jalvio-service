@@ -9,6 +9,7 @@
 package live_test
 
 import (
+	"cmp"
 	"context"
 	"log"
 	"log/slog"
@@ -89,12 +90,18 @@ func TestBroker(t *testing.T) {
 	mqtt.WARN = log.New(out, "mqtt warn: ", 0)
 	t.Cleanup(func() { mqtt.ERROR, mqtt.CRITICAL, mqtt.WARN = mqtt.NOOPLogger{}, mqtt.NOOPLogger{}, mqtt.NOOPLogger{} })
 
+	prefix := cmp.Or(os.Getenv("MQTT_CLIENT_ID_PREFIX"), "jalvio-")
+	clientID, err := mqttfeed.LoadOrCreateClientID(filepath.Join(t.TempDir(), "mqtt-client-id"), prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	buses := fleet.New()
 	live := mqttfeed.New(mqttfeed.Config{
 		URL:           os.Getenv("MQTT_URL"),
 		TLSServerName: os.Getenv("MQTT_TLS_SERVER_NAME"),
 		DialAddress:   os.Getenv("MQTT_DIAL_ADDRESS"),
-		ClientID:      "jalvio-live-test",
+		ClientID:      clientID,
 	}, buses, slog.New(slog.NewTextHandler(out, nil)))
 
 	ctx, cancel := context.WithTimeout(t.Context(), duration)
