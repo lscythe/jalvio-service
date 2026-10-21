@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -360,11 +361,14 @@ func (p *parser) build(version string) *Catalog {
 	c := &Catalog{
 		version:    version,
 		routeIndex: make(map[string]int, len(p.routes)),
-		stopIndex:  make(map[string]int, len(p.stops)),
-		trips:      make(map[string]Trip, len(p.trips)),
-		services:   p.services,
-		fares:      p.fares,
 	}
+	trips := make([]Trip, 0, len(p.trips))
+	for _, t := range p.trips {
+		trips = append(trips, *t)
+	}
+	c.trips, c.tripIndex = sortedByID(trips, func(t Trip) string { return t.ID })
+	c.services, c.serviceIndex = sortedByID(slices.Collect(maps.Values(p.services)), func(s Service) string { return s.ID })
+	c.fares, c.fareIndex = sortedByID(slices.Collect(maps.Values(p.fares)), func(f Fare) string { return f.ID })
 	for _, r := range p.routes {
 		c.routes = append(c.routes, *r)
 	}
@@ -382,14 +386,16 @@ func (p *parser) build(version string) *Catalog {
 		slices.Sort(s.RouteIDs)
 		c.stops = append(c.stops, *s)
 	}
-	slices.SortFunc(c.stops, func(a, b Stop) int { return cmp.Compare(a.ID, b.ID) })
-	for i, s := range c.stops {
-		c.stopIndex[s.ID] = i
-	}
-
-	for id, t := range p.trips {
-		c.trips[id] = *t
-	}
+	c.stops, c.stopIndex = sortedByID(c.stops, func(s Stop) string { return s.ID })
 	c.search = newSearchIndex(c.routes, c.stops)
 	return c
+}
+
+func sortedByID[T any](items []T, id func(T) string) ([]T, map[string]int) {
+	slices.SortFunc(items, func(a, b T) int { return cmp.Compare(id(a), id(b)) })
+	index := make(map[string]int, len(items))
+	for i, item := range items {
+		index[id(item)] = i
+	}
+	return items, index
 }

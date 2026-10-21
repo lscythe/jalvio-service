@@ -1,0 +1,431 @@
+openapi: 3.0.3
+info:
+  title: jalvio-service
+  version: "1"
+  description: |
+    Public transit data for the Jalvio app. Access is anonymous.
+
+    The app is offline first: it keeps `/v1/catalog` and `/v1/catalog/shapes`
+    on the device, refreshes them with `If-None-Match`, and computes static
+    screens, search, and timetables from them.
+
+    JSON is camelCase, times are RFC 3339 in UTC, and coordinates are
+    `{lat, lng}`. Errors are RFC 9457 problem details.
+  license:
+    name: Apache-2.0
+
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Readiness
+      responses:
+        "204":
+          description: Ready. No body.
+        "503":
+          description: Not ready, or draining. No body.
+
+  /v1/status:
+    get:
+      operationId: getStatus
+      summary: State of the catalog, the live feed, and the stop facilities sync
+      responses:
+        "200":
+          description: Current state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+
+  /v1/catalog:
+    get:
+      operationId: getCatalog
+      summary: The whole static network, for offline use
+      description: |
+        Changes when the feed or the stop facilities change, usually less
+        than once a day. Send the stored ETag in `If-None-Match`.
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The catalog.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Catalog"
+        "304":
+          description: The stored copy is current. No body.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /v1/catalog/shapes:
+    get:
+      operationId: getCatalogShapes
+      summary: Route lines for every pattern, for offline use
+      description: Changes only with the feed. Send the stored ETag in `If-None-Match`.
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The shapes.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shapes"
+        "304":
+          description: The stored copy is current. No body.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+components:
+  parameters:
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema:
+        type: string
+
+  headers:
+    ETag:
+      required: true
+      schema:
+        type: string
+
+  responses:
+    NotReady:
+      description: No catalog has been loaded yet.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+
+    Status:
+      type: object
+      additionalProperties: false
+      required: [version, startedAt, catalog, feed, stopFacilities]
+      properties:
+        version:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        catalog:
+          type: object
+          additionalProperties: false
+          properties:
+            version:
+              type: string
+            updatedAt:
+              type: string
+              format: date-time
+            checkedAt:
+              type: string
+              format: date-time
+            error:
+              type: string
+        feed:
+          type: object
+          additionalProperties: false
+          required: [state, reconnects, messages, malformed, buses]
+          properties:
+            state:
+              type: string
+              enum: [disabled, connected, disconnected]
+            lastMessageAt:
+              type: string
+              format: date-time
+            reconnects:
+              type: integer
+            messages:
+              type: integer
+              format: int64
+            malformed:
+              type: integer
+              format: int64
+            rejected:
+              type: object
+              additionalProperties:
+                type: integer
+                format: int64
+            buses:
+              type: integer
+        stopFacilities:
+          type: object
+          additionalProperties: false
+          required: [state, requests, matched, unmatched]
+          properties:
+            state:
+              type: string
+              enum: [disabled, pending, synced]
+            syncedAt:
+              type: string
+              format: date-time
+            checkedAt:
+              type: string
+              format: date-time
+            error:
+              type: string
+            requests:
+              type: integer
+            matched:
+              type: integer
+            unmatched:
+              type: integer
+
+    Catalog:
+      type: object
+      additionalProperties: false
+      required: [feedVersion, routes, stops, patterns, services, fares]
+      properties:
+        feedVersion:
+          type: string
+          description: SHA-256 of the static feed.
+        facilitiesSyncedAt:
+          type: string
+          format: date-time
+          description: When stop facilities were last synced. Absent before the first sync.
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Route"
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/Stop"
+        patterns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Pattern"
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/Service"
+        fares:
+          type: array
+          items:
+            $ref: "#/components/schemas/Fare"
+
+    Route:
+      type: object
+      additionalProperties: false
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+          description: The code shown on the badge and the bus.
+        name:
+          type: string
+        class:
+          type: string
+        color:
+          type: string
+          description: Hex RGB without `#`.
+          pattern: "^[0-9A-Fa-f]{6}$"
+        textColor:
+          type: string
+          pattern: "^[0-9A-Fa-f]{6}$"
+        fareId:
+          type: string
+
+    Stop:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, position, routeIds]
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [station, platform, roadside]
+        position:
+          $ref: "#/components/schemas/Position"
+        parentId:
+          type: string
+          description: The station a platform belongs to.
+        childIds:
+          type: array
+          items:
+            type: string
+        platformCode:
+          type: string
+          description: Door letters, such as `D-E-F`.
+        description:
+          type: string
+        routeIds:
+          type: array
+          items:
+            type: string
+        transferIds:
+          type: array
+          description: Stops within a short walk where riders can change.
+          items:
+            type: string
+        facilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Facility"
+
+    Position:
+      type: object
+      additionalProperties: false
+      required: [lat, lng]
+      properties:
+        lat:
+          type: number
+        lng:
+          type: number
+
+    Facility:
+      type: object
+      additionalProperties: false
+      required: [key, title]
+      properties:
+        key:
+          type: string
+          description: Stable key that clients map to an icon, such as `toilet` or `lift`.
+        title:
+          type: string
+          description: Text to show for keys the client does not know.
+
+    Pattern:
+      type: object
+      additionalProperties: false
+      description: One stop sequence of a route, run at the given headways on the service's days.
+      required: [id, routeId, direction, serviceId, stops, headways]
+      properties:
+        id:
+          type: string
+          description: Equal to the trip ID that live buses report.
+        routeId:
+          type: string
+        direction:
+          type: integer
+          enum: [0, 1]
+        headsign:
+          type: string
+        name:
+          type: string
+        serviceId:
+          type: string
+        stops:
+          type: array
+          minItems: 2
+          items:
+            $ref: "#/components/schemas/PatternStop"
+        headways:
+          type: array
+          items:
+            $ref: "#/components/schemas/Headway"
+
+    PatternStop:
+      type: object
+      additionalProperties: false
+      required: [stopId, fromStartSeconds]
+      properties:
+        stopId:
+          type: string
+        fromStartSeconds:
+          type: integer
+          minimum: 0
+          description: Scheduled time from the first stop of the pattern.
+
+    Headway:
+      type: object
+      additionalProperties: false
+      required: [startSeconds, endSeconds, everySeconds]
+      description: Seconds from midnight of the service day; may exceed 86400 past midnight.
+      properties:
+        startSeconds:
+          type: integer
+          minimum: 0
+        endSeconds:
+          type: integer
+          minimum: 0
+        everySeconds:
+          type: integer
+          minimum: 1
+
+    Service:
+      type: object
+      additionalProperties: false
+      required: [id, days, startDate, endDate]
+      properties:
+        id:
+          type: string
+        days:
+          type: array
+          items:
+            type: string
+            enum: [mon, tue, wed, thu, fri, sat, sun]
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+
+    Fare:
+      type: object
+      additionalProperties: false
+      required: [id, price, currency]
+      properties:
+        id:
+          type: string
+        price:
+          type: integer
+          format: int64
+          description: In whole units of the currency.
+        currency:
+          type: string
+          description: ISO 4217 code.
+
+    Shapes:
+      type: object
+      additionalProperties: false
+      required: [feedVersion, shapes]
+      properties:
+        feedVersion:
+          type: string
+        shapes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [patternId, polyline]
+            properties:
+              patternId:
+                type: string
+              polyline:
+                type: string
+                description: Google encoded polyline, five decimals.

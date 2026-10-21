@@ -9,15 +9,18 @@ import (
 // Catalog is an immutable snapshot of the static GTFS feed. Callers must not
 // modify the slices it returns.
 type Catalog struct {
-	version    string
-	routes     []Route
-	routeIndex map[string]int
-	stops      []Stop
-	stopIndex  map[string]int
-	trips      map[string]Trip
-	services   map[string]Service
-	fares      map[string]Fare
-	search     []searchEntry
+	version      string
+	routes       []Route
+	routeIndex   map[string]int
+	stops        []Stop
+	stopIndex    map[string]int
+	trips        []Trip
+	tripIndex    map[string]int
+	services     []Service
+	serviceIndex map[string]int
+	fares        []Fare
+	fareIndex    map[string]int
+	search       []searchEntry
 }
 
 type Route struct {
@@ -108,36 +111,30 @@ func (c *Catalog) Version() string { return c.version }
 // Routes returns all routes ordered by code.
 func (c *Catalog) Routes() []Route { return c.routes }
 
-func (c *Catalog) Route(id string) (Route, bool) {
-	i, ok := c.routeIndex[id]
-	if !ok {
-		return Route{}, false
-	}
-	return c.routes[i], true
-}
+func (c *Catalog) Route(id string) (Route, bool) { return lookup(c.routes, c.routeIndex, id) }
 
-// Stops returns all stops ordered by ID.
+// Stops, Trips, Services and Fares are ordered by ID.
 func (c *Catalog) Stops() []Stop { return c.stops }
 
-func (c *Catalog) Stop(id string) (Stop, bool) {
-	i, ok := c.stopIndex[id]
+func (c *Catalog) Stop(id string) (Stop, bool) { return lookup(c.stops, c.stopIndex, id) }
+
+func (c *Catalog) Trips() []Trip { return c.trips }
+
+func (c *Catalog) Trip(id string) (Trip, bool) { return lookup(c.trips, c.tripIndex, id) }
+
+func (c *Catalog) Services() []Service { return c.services }
+
+func (c *Catalog) Service(id string) (Service, bool) { return lookup(c.services, c.serviceIndex, id) }
+
+func (c *Catalog) Fares() []Fare { return c.fares }
+
+func (c *Catalog) Fare(id string) (Fare, bool) { return lookup(c.fares, c.fareIndex, id) }
+
+func lookup[T any](items []T, index map[string]int, id string) (T, bool) {
+	i, ok := index[id]
 	if !ok {
-		return Stop{}, false
+		var zero T
+		return zero, false
 	}
-	return c.stops[i], true
-}
-
-func (c *Catalog) Trip(id string) (Trip, bool) {
-	t, ok := c.trips[id]
-	return t, ok
-}
-
-func (c *Catalog) Service(id string) (Service, bool) {
-	s, ok := c.services[id]
-	return s, ok
-}
-
-func (c *Catalog) Fare(id string) (Fare, bool) {
-	f, ok := c.fares[id]
-	return f, ok
+	return items[i], true
 }

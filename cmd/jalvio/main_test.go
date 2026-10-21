@@ -76,7 +76,7 @@ type serviceStatus struct {
 	StopFacilities struct {
 		State string `json:"state"`
 		Error string `json:"error"`
-	} `json:"stop_facilities"`
+	} `json:"stopFacilities"`
 }
 
 // startService runs the service against a local copy of the fixture feed and
@@ -135,6 +135,14 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "gtfs.zip")); err != nil {
 		t.Errorf("feed not stored: %v", err)
+	}
+
+	var catalog struct {
+		FeedVersion string `json:"feedVersion"`
+	}
+	getJSON(t, base+"/v1/catalog", &catalog)
+	if catalog.FeedVersion != status.Catalog.Version {
+		t.Errorf("catalog feedVersion = %q, want %q", catalog.FeedVersion, status.Catalog.Version)
 	}
 }
 
