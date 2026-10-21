@@ -32,7 +32,7 @@ func Parse(data []byte) (*Catalog, error) {
 		fares:     map[string]Fare{},
 		stopTimes: map[string][]sequenced[TripStop]{},
 	}
-	for _, step := range []func() error{p.readRoutes, p.readFares, p.readStops, p.readShapes, p.readCalendar, p.readTrips, p.readStopTimes, p.readFrequencies} {
+	for _, step := range []func() error{p.readRoutes, p.readFares, p.readStops, p.readTransfers, p.readShapes, p.readCalendar, p.readTrips, p.readStopTimes, p.readFrequencies} {
 		if err := step(); err != nil {
 			return nil, err
 		}
@@ -123,12 +123,13 @@ func (p *parser) readStops() error {
 			return r.errorf("invalid stop_lon %q", r.get("stop_lon"))
 		}
 		s := &Stop{
-			ID:       r.get("stop_id"),
-			Code:     r.get("stop_code"),
-			Name:     r.get("stop_name"),
-			Lat:      lat,
-			Lon:      lon,
-			ParentID: r.get("parent_station"),
+			ID:           r.get("stop_id"),
+			Code:         r.get("stop_code"),
+			Name:         r.get("stop_name"),
+			Lat:          lat,
+			Lon:          lon,
+			PlatformCode: r.get("platform_code"),
+			ParentID:     r.get("parent_station"),
 		}
 		switch {
 		case r.get("location_type") == "1":
@@ -153,6 +154,21 @@ func (p *parser) readStops() error {
 		parent.ChildIDs = append(parent.ChildIDs, s.ID)
 	}
 	return nil
+}
+
+func (p *parser) readTransfers() error {
+	return readTable(p.zr, "transfers.txt", false, []string{"from_stop_id", "to_stop_id"}, func(r *row) error {
+		fromID, toID := r.get("from_stop_id"), r.get("to_stop_id")
+		from, ok := p.stops[fromID]
+		if !ok {
+			return r.errorf("transfer from unknown stop %s", fromID)
+		}
+		if _, ok := p.stops[toID]; !ok {
+			return r.errorf("transfer to unknown stop %s", toID)
+		}
+		from.TransferIDs = append(from.TransferIDs, toID)
+		return nil
+	})
 }
 
 func (p *parser) readShapes() error {
@@ -359,6 +375,7 @@ func (p *parser) build(version string) *Catalog {
 
 	for _, s := range p.stops {
 		slices.Sort(s.ChildIDs)
+		slices.Sort(s.TransferIDs)
 		for routeID := range routeSets[s.ID] {
 			s.RouteIDs = append(s.RouteIDs, routeID)
 		}

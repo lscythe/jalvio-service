@@ -82,8 +82,16 @@ func TestParseStops(t *testing.T) {
 		{
 			id: "G00002",
 			want: catalog.Stop{
-				ID: "G00002", Name: "Bundaran HI", Lat: -6.1931, Lon: 106.8231,
+				ID: "G00002", Name: "Bundaran HI", Lat: -6.1931, Lon: 106.8231, PlatformCode: "A",
 				Kind: catalog.Platform, ParentID: "H00002P", RouteIDs: []string{"1"},
+			},
+		},
+		{
+			id: "H00003P",
+			want: catalog.Stop{
+				ID: "H00003P", Name: "Kota", Lat: -6.137, Lon: 106.813,
+				Kind: catalog.Station, ChildIDs: []string{"G00003"}, RouteIDs: []string{"1"},
+				TransferIDs: []string{"B00004P"},
 			},
 		},
 		{
@@ -280,6 +288,12 @@ func TestParseRejectsInvalidFeed(t *testing.T) {
 			replace: map[string]string{"fare_attributes.txt": "fare_id,price,currency_type\n" +
 				"FP,free,IDR\n"},
 			wantErr: "price",
+		},
+		{
+			name: "transfer with unknown stop",
+			replace: map[string]string{"transfers.txt": "from_stop_id,to_stop_id\n" +
+				"H00003P,X99999\n"},
+			wantErr: "unknown stop",
 		},
 		{
 			name: "fare rule with unknown fare",

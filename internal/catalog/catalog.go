@@ -46,15 +46,17 @@ const (
 )
 
 type Stop struct {
-	ID       string
-	Code     string
-	Name     string
-	Lat      float64
-	Lon      float64
-	Kind     Kind
-	ParentID string
-	ChildIDs []string
-	RouteIDs []string
+	ID           string
+	Code         string
+	Name         string
+	Lat          float64
+	Lon          float64
+	PlatformCode string
+	Kind         Kind
+	ParentID     string
+	ChildIDs     []string
+	RouteIDs     []string
+	TransferIDs  []string
 }
 
 // Trip is a stop pattern served at the given headways. The feed models each
