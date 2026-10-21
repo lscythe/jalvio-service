@@ -155,6 +155,30 @@ func TestParseTrips(t *testing.T) {
 	}
 }
 
+func TestCatalogListsAreOrderedByID(t *testing.T) {
+	c := parseFixture(t)
+
+	var trips, services, fares []string
+	for _, tr := range c.Trips() {
+		trips = append(trips, tr.ID)
+	}
+	for _, s := range c.Services() {
+		services = append(services, s.ID)
+	}
+	for _, f := range c.Fares() {
+		fares = append(fares, f.ID)
+	}
+	if want := []string{"1-R01", "1-R02", "JAK.18-R01"}; !reflect.DeepEqual(trips, want) {
+		t.Errorf("Trips = %v, want %v", trips, want)
+	}
+	if want := []string{"HK", "SH"}; !reflect.DeepEqual(services, want) {
+		t.Errorf("Services = %v, want %v", services, want)
+	}
+	if want := []string{"FP", "GR"}; !reflect.DeepEqual(fares, want) {
+		t.Errorf("Fares = %v, want %v", fares, want)
+	}
+}
+
 func TestParseFares(t *testing.T) {
 	c := parseFixture(t)
 
@@ -358,8 +382,9 @@ func TestParseRejectsInvalidFeed(t *testing.T) {
 		{
 			name: "arrival before the previous stop",
 			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id,arrival_time\n" +
-				"1-R01,0,G00001,05:20:00\n1-R01,1,G00002,05:00:00\n"},
-			wantErr: "1-R01",
+				"1-R01,0,G00001,05:20:00\n1-R01,1,G00002,05:00:00\n1-R02,0,G00003,05:00:00\n1-R02,1,G00001,05:40:00\n" +
+				"JAK.18-R01,0,B00001P,05:00:00\nJAK.18-R01,1,B00002P,05:10:00\n"},
+			wantErr: "trip 1-R01 arrives at G00002 before G00001",
 		},
 		{
 			name: "stop with unknown parent",

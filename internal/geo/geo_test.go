@@ -23,6 +23,33 @@ func TestDistance(t *testing.T) {
 	}
 }
 
+func TestEncodePolyline(t *testing.T) {
+	tests := []struct {
+		name   string
+		points []geo.Point
+		want   string
+	}{
+		{"empty", nil, ""},
+		{
+			"reference example",
+			[]geo.Point{{Lat: 38.5, Lon: -120.2}, {Lat: 40.7, Lon: -120.95}, {Lat: 43.252, Lon: -126.453}},
+			"_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+		},
+		{
+			"rounds to five decimals",
+			[]geo.Point{{Lat: -6.1754049, Lon: 106.8271951}},
+			"fcud@_u_kS",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := geo.EncodePolyline(tt.points); got != tt.want {
+				t.Errorf("EncodePolyline = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBBoxContains(t *testing.T) {
 	jakarta := geo.BBox{West: 106.6, South: -6.4, East: 107.0, North: -6.0}
 	tests := []struct {

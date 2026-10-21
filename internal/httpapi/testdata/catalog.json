@@ -1,0 +1,41 @@
+{
+  "feedVersion": "FEED_VERSION",
+  "facilitiesSyncedAt": "2026-10-21T20:00:00Z",
+  "routes": [
+    {"id": "1", "code": "1", "name": "Blok M - Kota", "class": "BRT", "color": "D21F3C", "textColor": "FFFFFF", "fareId": "FP"},
+    {"id": "JAK.10A", "code": "JAK.10A", "name": "Tanah Abang - Senen", "class": "Mikrotrans", "color": "62C2D2", "textColor": "000000"},
+    {"id": "JAK.18", "code": "JAK.18", "name": "Kalibata - Kuningan", "class": "Mikrotrans", "color": "62C2D2", "textColor": "000000", "fareId": "GR"}
+  ],
+  "stops": [
+    {"id": "B00001P", "name": "Kalibata City", "kind": "roadside", "position": {"lat": -6.257, "lng": 106.853}, "routeIds": ["JAK.18"]},
+    {"id": "B00002P", "name": "Pancoran", "kind": "roadside", "position": {"lat": -6.243, "lng": 106.844}, "routeIds": ["JAK.18"]},
+    {"id": "B00003P", "code": "KNB", "name": "Kuningan Barat", "kind": "roadside", "position": {"lat": -6.236, "lng": 106.828}, "platformCode": "B", "description": "In front of the mall", "routeIds": ["JAK.18"]},
+    {"id": "B00004P", "name": "Kota Tua", "kind": "roadside", "position": {"lat": -6.19, "lng": 106.82}, "routeIds": [], "transferIds": ["H00003P"]},
+    {"id": "G00001", "name": "Blok M", "kind": "platform", "position": {"lat": -6.2431, "lng": 106.8011}, "parentId": "H00001P", "platformCode": "A", "routeIds": ["1"]},
+    {"id": "G00002", "name": "Bundaran HI", "kind": "platform", "position": {"lat": -6.1931, "lng": 106.8231}, "parentId": "H00002P", "platformCode": "A", "routeIds": ["1"]},
+    {"id": "G00003", "name": "Kota", "kind": "platform", "position": {"lat": -6.1371, "lng": 106.8131}, "parentId": "H00003P", "platformCode": "A", "routeIds": ["1"]},
+    {"id": "H00001P", "name": "Blok M", "kind": "station", "position": {"lat": -6.243, "lng": 106.801}, "childIds": ["G00001"], "routeIds": ["1"]},
+    {"id": "H00002P", "name": "Bundaran HI", "kind": "station", "position": {"lat": -6.193, "lng": 106.823}, "childIds": ["G00002"], "routeIds": ["1"],
+      "facilities": [{"key": "toilet", "title": "Toilet"}, {"key": "lift", "title": "Lift"}]},
+    {"id": "H00003P", "name": "Kota", "kind": "station", "position": {"lat": -6.137, "lng": 106.813}, "childIds": ["G00003"], "routeIds": ["1"], "transferIds": ["B00004P"]}
+  ],
+  "patterns": [
+    {"id": "1-R01", "routeId": "1", "direction": 0, "headsign": "Kota", "name": "Blok M - Kota", "serviceId": "SH",
+      "stops": [{"stopId": "G00001", "fromStartSeconds": 0}, {"stopId": "G00002", "fromStartSeconds": 1200}, {"stopId": "G00003", "fromStartSeconds": 2400}],
+      "headways": [{"startSeconds": 18000, "endSeconds": 79200, "everySeconds": 600}, {"startSeconds": 79200, "endSeconds": 90000, "everySeconds": 1800}]},
+    {"id": "1-R02", "routeId": "1", "direction": 1, "headsign": "Blok M", "name": "Kota - Blok M", "serviceId": "SH",
+      "stops": [{"stopId": "G00003", "fromStartSeconds": 0}, {"stopId": "G00002", "fromStartSeconds": 1200}, {"stopId": "G00001", "fromStartSeconds": 2400}],
+      "headways": [{"startSeconds": 18000, "endSeconds": 79200, "everySeconds": 600}]},
+    {"id": "JAK.18-R01", "routeId": "JAK.18", "direction": 0, "headsign": "Kuningan", "name": "Kalibata - Kuningan", "serviceId": "SH",
+      "stops": [{"stopId": "B00001P", "fromStartSeconds": 0}, {"stopId": "B00002P", "fromStartSeconds": 600}, {"stopId": "B00003P", "fromStartSeconds": 1200}],
+      "headways": []}
+  ],
+  "services": [
+    {"id": "HK", "days": ["mon", "tue", "wed", "thu", "fri"], "startDate": "2004-01-15", "endDate": "2027-12-31"},
+    {"id": "SH", "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "startDate": "2004-01-15", "endDate": "2027-12-31"}
+  ],
+  "fares": [
+    {"id": "FP", "price": 3500, "currency": "IDR"},
+    {"id": "GR", "price": 0, "currency": "IDR"}
+  ]
+}

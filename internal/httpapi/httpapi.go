@@ -16,6 +16,7 @@ type Info struct {
 }
 
 type Catalogs interface {
+	Current() *catalog.Catalog
 	Status() catalog.Status
 }
 
@@ -24,6 +25,7 @@ type Feed interface {
 }
 
 type StopInfo interface {
+	Current() *stopinfo.Snapshot
 	Status() stopinfo.Status
 }
 
@@ -44,22 +46,22 @@ type Deps struct {
 
 type statusResponse struct {
 	Version   string        `json:"version"`
-	StartedAt time.Time     `json:"started_at"`
+	StartedAt time.Time     `json:"startedAt"`
 	Catalog   catalogStatus `json:"catalog"`
 	Feed      feedStatus    `json:"feed"`
-	Stops     stopsStatus   `json:"stop_facilities"`
+	Stops     stopsStatus   `json:"stopFacilities"`
 }
 
 type catalogStatus struct {
 	Version   string    `json:"version,omitempty"`
-	UpdatedAt time.Time `json:"updated_at,omitzero"`
-	CheckedAt time.Time `json:"checked_at,omitzero"`
+	UpdatedAt time.Time `json:"updatedAt,omitzero"`
+	CheckedAt time.Time `json:"checkedAt,omitzero"`
 	Error     string    `json:"error,omitempty"`
 }
 
 type feedStatus struct {
 	State         string           `json:"state"`
-	LastMessageAt time.Time        `json:"last_message_at,omitzero"`
+	LastMessageAt time.Time        `json:"lastMessageAt,omitzero"`
 	Reconnects    int              `json:"reconnects"`
 	Messages      int64            `json:"messages"`
 	Malformed     int64            `json:"malformed"`
@@ -69,8 +71,8 @@ type feedStatus struct {
 
 type stopsStatus struct {
 	State     string    `json:"state"`
-	SyncedAt  time.Time `json:"synced_at,omitzero"`
-	CheckedAt time.Time `json:"checked_at,omitzero"`
+	SyncedAt  time.Time `json:"syncedAt,omitzero"`
+	CheckedAt time.Time `json:"checkedAt,omitzero"`
 	Error     string    `json:"error,omitempty"`
 	Requests  int       `json:"requests"`
 	Matched   int       `json:"matched"`
@@ -95,6 +97,9 @@ func New(d Deps) http.Handler {
 			Stops:     newStopsStatus(d.StopInfo),
 		})
 	})
+	docs := &catalogDocuments{catalogs: d.Catalogs, stopInfo: d.StopInfo}
+	mux.HandleFunc("GET /v1/catalog", docs.serveCatalog)
+	mux.HandleFunc("GET /v1/catalog/shapes", docs.serveShapes)
 	return problemFallback(mux)
 }
 
