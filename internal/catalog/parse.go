@@ -29,9 +29,10 @@ func Parse(data []byte) (*Catalog, error) {
 		shapes:    map[string][]sequenced[geo.Point]{},
 		trips:     map[string]*Trip{},
 		services:  map[string]Service{},
+		fares:     map[string]Fare{},
 		stopTimes: map[string][]sequenced[TripStop]{},
 	}
-	for _, step := range []func() error{p.readRoutes, p.readStops, p.readShapes, p.readCalendar, p.readTrips, p.readStopTimes, p.readFrequencies} {
+	for _, step := range []func() error{p.readRoutes, p.readFares, p.readStops, p.readTransfers, p.readShapes, p.readCalendar, p.readTrips, p.readStopTimes, p.readFrequencies} {
 		if err := step(); err != nil {
 			return nil, err
 		}
@@ -65,6 +66,7 @@ type parser struct {
 	shapes    map[string][]sequenced[geo.Point]
 	trips     map[string]*Trip
 	services  map[string]Service
+	fares     map[string]Fare
 	stopTimes map[string][]sequenced[TripStop]
 }
 
@@ -83,6 +85,33 @@ func (p *parser) readRoutes() error {
 	})
 }
 
+func (p *parser) readFares() error {
+	err := readTable(p.zr, "fare_attributes.txt", false, []string{"fare_id", "price", "currency_type"}, func(r *row) error {
+		price, err := strconv.ParseInt(r.get("price"), 10, 64)
+		if err != nil {
+			return r.errorf("invalid price %q", r.get("price"))
+		}
+		f := Fare{ID: r.get("fare_id"), Price: price, Currency: r.get("currency_type")}
+		p.fares[f.ID] = f
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return readTable(p.zr, "fare_rules.txt", false, []string{"fare_id", "route_id"}, func(r *row) error {
+		fareID, routeID := r.get("fare_id"), r.get("route_id")
+		if _, ok := p.fares[fareID]; !ok {
+			return r.errorf("rule for unknown fare %s", fareID)
+		}
+		route, ok := p.routes[routeID]
+		if !ok {
+			return r.errorf("fare %s for unknown route %s", fareID, routeID)
+		}
+		route.FareID = fareID
+		return nil
+	})
+}
+
 func (p *parser) readStops() error {
 	err := readTable(p.zr, "stops.txt", true, []string{"stop_id", "stop_name", "stop_lat", "stop_lon"}, func(r *row) error {
 		lat, err := strconv.ParseFloat(r.get("stop_lat"), 64)
@@ -94,12 +123,13 @@ func (p *parser) readStops() error {
 			return r.errorf("invalid stop_lon %q", r.get("stop_lon"))
 		}
 		s := &Stop{
-			ID:       r.get("stop_id"),
-			Code:     r.get("stop_code"),
-			Name:     r.get("stop_name"),
-			Lat:      lat,
-			Lon:      lon,
-			ParentID: r.get("parent_station"),
+			ID:           r.get("stop_id"),
+			Code:         r.get("stop_code"),
+			Name:         r.get("stop_name"),
+			Lat:          lat,
+			Lon:          lon,
+			PlatformCode: r.get("platform_code"),
+			ParentID:     r.get("parent_station"),
 		}
 		switch {
 		case r.get("location_type") == "1":
@@ -124,6 +154,21 @@ func (p *parser) readStops() error {
 		parent.ChildIDs = append(parent.ChildIDs, s.ID)
 	}
 	return nil
+}
+
+func (p *parser) readTransfers() error {
+	return readTable(p.zr, "transfers.txt", false, []string{"from_stop_id", "to_stop_id"}, func(r *row) error {
+		fromID, toID := r.get("from_stop_id"), r.get("to_stop_id")
+		from, ok := p.stops[fromID]
+		if !ok {
+			return r.errorf("transfer from unknown stop %s", fromID)
+		}
+		if _, ok := p.stops[toID]; !ok {
+			return r.errorf("transfer to unknown stop %s", toID)
+		}
+		from.TransferIDs = append(from.TransferIDs, toID)
+		return nil
+	})
 }
 
 func (p *parser) readShapes() error {
@@ -318,6 +363,7 @@ func (p *parser) build(version string) *Catalog {
 		stopIndex:  make(map[string]int, len(p.stops)),
 		trips:      make(map[string]Trip, len(p.trips)),
 		services:   p.services,
+		fares:      p.fares,
 	}
 	for _, r := range p.routes {
 		c.routes = append(c.routes, *r)
@@ -329,6 +375,7 @@ func (p *parser) build(version string) *Catalog {
 
 	for _, s := range p.stops {
 		slices.Sort(s.ChildIDs)
+		slices.Sort(s.TransferIDs)
 		for routeID := range routeSets[s.ID] {
 			s.RouteIDs = append(s.RouteIDs, routeID)
 		}

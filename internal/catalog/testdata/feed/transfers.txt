@@ -1,0 +1,3 @@
+from_stop_id,to_stop_id,transfer_type,min_transfer_time
+H00003P,B00004P,0,
+B00004P,H00003P,0,

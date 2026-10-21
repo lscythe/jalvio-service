@@ -16,6 +16,7 @@ type Catalog struct {
 	stopIndex  map[string]int
 	trips      map[string]Trip
 	services   map[string]Service
+	fares      map[string]Fare
 	search     []searchEntry
 }
 
@@ -26,7 +27,14 @@ type Route struct {
 	Class     string
 	Color     string
 	TextColor string
+	FareID    string
 	TripIDs   []string
+}
+
+type Fare struct {
+	ID       string
+	Price    int64
+	Currency string
 }
 
 type Kind int
@@ -38,15 +46,17 @@ const (
 )
 
 type Stop struct {
-	ID       string
-	Code     string
-	Name     string
-	Lat      float64
-	Lon      float64
-	Kind     Kind
-	ParentID string
-	ChildIDs []string
-	RouteIDs []string
+	ID           string
+	Code         string
+	Name         string
+	Lat          float64
+	Lon          float64
+	PlatformCode string
+	Kind         Kind
+	ParentID     string
+	ChildIDs     []string
+	RouteIDs     []string
+	TransferIDs  []string
 }
 
 // Trip is a stop pattern served at the given headways. The feed models each
@@ -125,4 +135,9 @@ func (c *Catalog) Trip(id string) (Trip, bool) {
 func (c *Catalog) Service(id string) (Service, bool) {
 	s, ok := c.services[id]
 	return s, ok
+}
+
+func (c *Catalog) Fare(id string) (Fare, bool) {
+	f, ok := c.fares[id]
+	return f, ok
 }
