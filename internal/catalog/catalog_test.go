@@ -45,6 +45,7 @@ func TestParseRoutes(t *testing.T) {
 		Class:     "Mikrotrans",
 		Color:     "62C2D2",
 		TextColor: "000000",
+		FareID:    "GR",
 		TripIDs:   []string{"JAK.18-R01"},
 	}
 	got, ok := c.Route("JAK.18")
@@ -143,6 +144,34 @@ func TestParseTrips(t *testing.T) {
 
 	if got, _ := c.Trip("JAK.18-R01"); got.Headways != nil {
 		t.Errorf("JAK.18-R01 headways = %v, want none", got.Headways)
+	}
+}
+
+func TestParseFares(t *testing.T) {
+	c := parseFixture(t)
+
+	got, ok := c.Fare("FP")
+	if !ok {
+		t.Fatal("fare FP not found")
+	}
+	if want := (catalog.Fare{ID: "FP", Price: 3500, Currency: "IDR"}); got != want {
+		t.Errorf("Fare = %+v, want %+v", got, want)
+	}
+	if r, _ := c.Route("1"); r.FareID != "FP" {
+		t.Errorf("route 1 FareID = %q, want FP", r.FareID)
+	}
+	if r, _ := c.Route("JAK.10A"); r.FareID != "" {
+		t.Errorf("route JAK.10A FareID = %q, want none", r.FareID)
+	}
+}
+
+func TestParseWithoutFares(t *testing.T) {
+	c, err := catalog.Parse(catalogtest.Feed(t, nil, "fare_attributes.txt", "fare_rules.txt"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if r, _ := c.Route("1"); r.FareID != "" {
+		t.Errorf("route 1 FareID = %q, want none", r.FareID)
 	}
 }
 
@@ -245,6 +274,24 @@ func TestParseRejectsInvalidFeed(t *testing.T) {
 			replace: map[string]string{"trips.txt": "trip_id,route_id,service_id,trip_headsign,direction_id,shape_id\n" +
 				"1-R01,1,XX,Kota,0,1-R01_shp\n"},
 			wantErr: "unknown service",
+		},
+		{
+			name: "invalid fare price",
+			replace: map[string]string{"fare_attributes.txt": "fare_id,price,currency_type\n" +
+				"FP,free,IDR\n"},
+			wantErr: "price",
+		},
+		{
+			name: "fare rule with unknown fare",
+			replace: map[string]string{"fare_rules.txt": "fare_id,route_id\n" +
+				"XX,1\n"},
+			wantErr: "unknown fare",
+		},
+		{
+			name: "fare rule with unknown route",
+			replace: map[string]string{"fare_rules.txt": "fare_id,route_id\n" +
+				"FP,99\n"},
+			wantErr: "unknown route",
 		},
 		{
 			name:    "missing calendar",

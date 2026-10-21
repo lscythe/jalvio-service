@@ -29,9 +29,10 @@ func Parse(data []byte) (*Catalog, error) {
 		shapes:    map[string][]sequenced[geo.Point]{},
 		trips:     map[string]*Trip{},
 		services:  map[string]Service{},
+		fares:     map[string]Fare{},
 		stopTimes: map[string][]sequenced[TripStop]{},
 	}
-	for _, step := range []func() error{p.readRoutes, p.readStops, p.readShapes, p.readCalendar, p.readTrips, p.readStopTimes, p.readFrequencies} {
+	for _, step := range []func() error{p.readRoutes, p.readFares, p.readStops, p.readShapes, p.readCalendar, p.readTrips, p.readStopTimes, p.readFrequencies} {
 		if err := step(); err != nil {
 			return nil, err
 		}
@@ -65,6 +66,7 @@ type parser struct {
 	shapes    map[string][]sequenced[geo.Point]
 	trips     map[string]*Trip
 	services  map[string]Service
+	fares     map[string]Fare
 	stopTimes map[string][]sequenced[TripStop]
 }
 
@@ -79,6 +81,33 @@ func (p *parser) readRoutes() error {
 			Color:     r.get("route_color"),
 			TextColor: r.get("route_text_color"),
 		}
+		return nil
+	})
+}
+
+func (p *parser) readFares() error {
+	err := readTable(p.zr, "fare_attributes.txt", false, []string{"fare_id", "price", "currency_type"}, func(r *row) error {
+		price, err := strconv.ParseInt(r.get("price"), 10, 64)
+		if err != nil {
+			return r.errorf("invalid price %q", r.get("price"))
+		}
+		f := Fare{ID: r.get("fare_id"), Price: price, Currency: r.get("currency_type")}
+		p.fares[f.ID] = f
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return readTable(p.zr, "fare_rules.txt", false, []string{"fare_id", "route_id"}, func(r *row) error {
+		fareID, routeID := r.get("fare_id"), r.get("route_id")
+		if _, ok := p.fares[fareID]; !ok {
+			return r.errorf("rule for unknown fare %s", fareID)
+		}
+		route, ok := p.routes[routeID]
+		if !ok {
+			return r.errorf("fare %s for unknown route %s", fareID, routeID)
+		}
+		route.FareID = fareID
 		return nil
 	})
 }
@@ -318,6 +347,7 @@ func (p *parser) build(version string) *Catalog {
 		stopIndex:  make(map[string]int, len(p.stops)),
 		trips:      make(map[string]Trip, len(p.trips)),
 		services:   p.services,
+		fares:      p.fares,
 	}
 	for _, r := range p.routes {
 		c.routes = append(c.routes, *r)
