@@ -28,9 +28,10 @@ func Parse(data []byte) (*Catalog, error) {
 		stops:     map[string]*Stop{},
 		shapes:    map[string][]sequenced[geo.Point]{},
 		trips:     map[string]*Trip{},
+		services:  map[string]Service{},
 		stopTimes: map[string][]sequenced[string]{},
 	}
-	for _, step := range []func() error{p.readRoutes, p.readStops, p.readShapes, p.readTrips, p.readStopTimes, p.readFrequencies} {
+	for _, step := range []func() error{p.readRoutes, p.readStops, p.readShapes, p.readCalendar, p.readTrips, p.readStopTimes, p.readFrequencies} {
 		if err := step(); err != nil {
 			return nil, err
 		}
@@ -63,6 +64,7 @@ type parser struct {
 	stops     map[string]*Stop
 	shapes    map[string][]sequenced[geo.Point]
 	trips     map[string]*Trip
+	services  map[string]Service
 	stopTimes map[string][]sequenced[string]
 }
 
@@ -144,6 +146,33 @@ func (p *parser) readShapes() error {
 	})
 }
 
+var weekdayColumns = [7]string{"sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"}
+
+func (p *parser) readCalendar() error {
+	columns := append([]string{"service_id", "start_date", "end_date"}, weekdayColumns[:]...)
+	return readTable(p.zr, "calendar.txt", true, columns, func(r *row) error {
+		s := Service{ID: r.get("service_id")}
+		for day, col := range weekdayColumns {
+			switch r.get(col) {
+			case "1":
+				s.Days[day] = true
+			case "0":
+			default:
+				return r.errorf("invalid %s %q", col, r.get(col))
+			}
+		}
+		var err error
+		if s.Start, err = time.Parse("20060102", r.get("start_date")); err != nil {
+			return r.errorf("invalid start_date %q", r.get("start_date"))
+		}
+		if s.End, err = time.Parse("20060102", r.get("end_date")); err != nil {
+			return r.errorf("invalid end_date %q", r.get("end_date"))
+		}
+		p.services[s.ID] = s
+		return nil
+	})
+}
+
 func (p *parser) readTrips() error {
 	err := readTable(p.zr, "trips.txt", true, []string{"trip_id", "route_id", "service_id"}, func(r *row) error {
 		t := &Trip{
@@ -156,6 +185,9 @@ func (p *parser) readTrips() error {
 		route, ok := p.routes[t.RouteID]
 		if !ok {
 			return r.errorf("trip %s has unknown route %s", t.ID, t.RouteID)
+		}
+		if _, ok := p.services[t.ServiceID]; !ok {
+			return r.errorf("trip %s has unknown service %s", t.ID, t.ServiceID)
 		}
 		if d := r.get("direction_id"); d != "" {
 			dir, err := strconv.Atoi(d)
@@ -274,6 +306,7 @@ func (p *parser) build(version string) *Catalog {
 		routeIndex: make(map[string]int, len(p.routes)),
 		stopIndex:  make(map[string]int, len(p.stops)),
 		trips:      make(map[string]Trip, len(p.trips)),
+		services:   p.services,
 	}
 	for _, r := range p.routes {
 		c.routes = append(c.routes, *r)
