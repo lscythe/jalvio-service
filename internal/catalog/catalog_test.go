@@ -142,6 +142,54 @@ func TestParseTrips(t *testing.T) {
 	}
 }
 
+func TestParseServices(t *testing.T) {
+	c := parseFixture(t)
+
+	want := catalog.Service{
+		ID:    "HK",
+		Days:  [7]bool{time.Monday: true, time.Tuesday: true, time.Wednesday: true, time.Thursday: true, time.Friday: true},
+		Start: time.Date(2004, time.January, 15, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2027, time.December, 31, 0, 0, 0, 0, time.UTC),
+	}
+	got, ok := c.Service("HK")
+	if !ok {
+		t.Fatal("service HK not found")
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Service = %+v, want %+v", got, want)
+	}
+	if _, ok := c.Service("nope"); ok {
+		t.Error("unknown service found")
+	}
+}
+
+func TestServiceRunsOn(t *testing.T) {
+	c := parseFixture(t)
+	weekdays, _ := c.Service("HK")
+	jakarta := time.FixedZone("WIB", 7*60*60)
+
+	tests := []struct {
+		name string
+		day  time.Time
+		want bool
+	}{
+		{"weekday", time.Date(2026, time.October, 21, 12, 0, 0, 0, time.UTC), true},
+		{"weekend", time.Date(2026, time.October, 24, 12, 0, 0, 0, time.UTC), false},
+		{"first day", time.Date(2004, time.January, 15, 0, 0, 0, 0, time.UTC), true},
+		{"before the first day", time.Date(2004, time.January, 14, 23, 59, 0, 0, time.UTC), false},
+		{"last day", time.Date(2027, time.December, 31, 23, 59, 0, 0, time.UTC), true},
+		{"after the last day", time.Date(2028, time.January, 3, 0, 0, 0, 0, time.UTC), false},
+		{"date in the day's own zone", time.Date(2026, time.October, 24, 1, 0, 0, 0, jakarta), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := weekdays.RunsOn(tt.day); got != tt.want {
+				t.Errorf("RunsOn(%v) = %v, want %v", tt.day, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseAcceptsByteOrderMark(t *testing.T) {
 	raw, err := os.ReadFile("testdata/feed/routes.txt")
 	if err != nil {
@@ -187,6 +235,29 @@ func TestParseRejectsInvalidFeed(t *testing.T) {
 			replace: map[string]string{"trips.txt": "trip_id,route_id,service_id,trip_headsign,direction_id,shape_id\n" +
 				"1-R01,99,SH,Kota,0,1-R01_shp\n"},
 			wantErr: "unknown route",
+		},
+		{
+			name: "trip with unknown service",
+			replace: map[string]string{"trips.txt": "trip_id,route_id,service_id,trip_headsign,direction_id,shape_id\n" +
+				"1-R01,1,XX,Kota,0,1-R01_shp\n"},
+			wantErr: "unknown service",
+		},
+		{
+			name:    "missing calendar",
+			omit:    []string{"calendar.txt"},
+			wantErr: "calendar.txt",
+		},
+		{
+			name: "invalid service day",
+			replace: map[string]string{"calendar.txt": "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n" +
+				"SH,1,1,1,1,1,1,yes,20040115,20271231\n"},
+			wantErr: "sunday",
+		},
+		{
+			name: "invalid service date",
+			replace: map[string]string{"calendar.txt": "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n" +
+				"SH,1,1,1,1,1,1,1,20040115,2027-12-31\n"},
+			wantErr: "end_date",
 		},
 		{
 			name: "trip with unknown shape",

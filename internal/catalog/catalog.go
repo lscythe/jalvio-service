@@ -15,6 +15,7 @@ type Catalog struct {
 	stops      []Stop
 	stopIndex  map[string]int
 	trips      map[string]Trip
+	services   map[string]Service
 	search     []searchEntry
 }
 
@@ -70,6 +71,22 @@ type Headway struct {
 	Every time.Duration
 }
 
+// Service is a GTFS calendar: the weekdays a trip runs on, from Start through
+// End. Days is indexed by time.Weekday; Start and End are UTC midnights.
+type Service struct {
+	ID    string
+	Days  [7]bool
+	Start time.Time
+	End   time.Time
+}
+
+// RunsOn reports whether the service runs on day's calendar date in day's own
+// location, so callers pass a time in the feed's time zone.
+func (s Service) RunsOn(day time.Time) bool {
+	date := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
+	return s.Days[day.Weekday()] && !date.Before(s.Start) && !date.After(s.End)
+}
+
 // Version is the hex SHA-256 of the feed zip.
 func (c *Catalog) Version() string { return c.version }
 
@@ -98,4 +115,9 @@ func (c *Catalog) Stop(id string) (Stop, bool) {
 func (c *Catalog) Trip(id string) (Trip, bool) {
 	t, ok := c.trips[id]
 	return t, ok
+}
+
+func (c *Catalog) Service(id string) (Service, bool) {
+	s, ok := c.services[id]
+	return s, ok
 }
