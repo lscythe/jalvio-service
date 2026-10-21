@@ -29,7 +29,7 @@ func Parse(data []byte) (*Catalog, error) {
 		shapes:    map[string][]sequenced[geo.Point]{},
 		trips:     map[string]*Trip{},
 		services:  map[string]Service{},
-		stopTimes: map[string][]sequenced[string]{},
+		stopTimes: map[string][]sequenced[TripStop]{},
 	}
 	for _, step := range []func() error{p.readRoutes, p.readStops, p.readShapes, p.readCalendar, p.readTrips, p.readStopTimes, p.readFrequencies} {
 		if err := step(); err != nil {
@@ -65,7 +65,7 @@ type parser struct {
 	shapes    map[string][]sequenced[geo.Point]
 	trips     map[string]*Trip
 	services  map[string]Service
-	stopTimes map[string][]sequenced[string]
+	stopTimes map[string][]sequenced[TripStop]
 }
 
 func (p *parser) readRoutes() error {
@@ -217,7 +217,7 @@ func (p *parser) readTrips() error {
 }
 
 func (p *parser) readStopTimes() error {
-	err := readTable(p.zr, "stop_times.txt", true, []string{"trip_id", "stop_sequence", "stop_id"}, func(r *row) error {
+	err := readTable(p.zr, "stop_times.txt", true, []string{"trip_id", "stop_sequence", "stop_id", "arrival_time"}, func(r *row) error {
 		tripID, stopID := r.get("trip_id"), r.get("stop_id")
 		if _, ok := p.trips[tripID]; !ok {
 			return r.errorf("stop time for unknown trip %s", tripID)
@@ -229,16 +229,27 @@ func (p *parser) readStopTimes() error {
 		if err != nil {
 			return r.errorf("invalid stop_sequence %q", r.get("stop_sequence"))
 		}
-		p.stopTimes[tripID] = append(p.stopTimes[tripID], sequenced[string]{seq, stopID})
+		arrival, err := parseClock(r.get("arrival_time"))
+		if err != nil {
+			return r.errorf("invalid arrival_time: %v", err)
+		}
+		p.stopTimes[tripID] = append(p.stopTimes[tripID], sequenced[TripStop]{seq, TripStop{StopID: stopID, FromStart: arrival}})
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 	for id, t := range p.trips {
-		t.StopIDs = values(p.stopTimes[id])
-		if len(t.StopIDs) < 2 {
+		t.Stops = values(p.stopTimes[id])
+		if len(t.Stops) < 2 {
 			return fmt.Errorf("stop_times.txt: trip %s has fewer than 2 stops", id)
+		}
+		start := t.Stops[0].FromStart
+		for i := range t.Stops {
+			t.Stops[i].FromStart -= start
+			if i > 0 && t.Stops[i].FromStart < t.Stops[i-1].FromStart {
+				return fmt.Errorf("stop_times.txt: trip %s arrives at %s before %s", id, t.Stops[i].StopID, t.Stops[i-1].StopID)
+			}
 		}
 	}
 	return nil
@@ -293,9 +304,9 @@ func (p *parser) build(version string) *Catalog {
 		routeSets[stopID][routeID] = true
 	}
 	for _, t := range p.trips {
-		for _, stopID := range t.StopIDs {
-			addRoute(stopID, t.RouteID)
-			if parent := p.stops[stopID].ParentID; parent != "" {
+		for _, s := range t.Stops {
+			addRoute(s.StopID, t.RouteID)
+			if parent := p.stops[s.StopID].ParentID; parent != "" {
 				addRoute(parent, t.RouteID)
 			}
 		}

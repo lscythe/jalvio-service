@@ -58,9 +58,14 @@ type Trip struct {
 	Headsign  string
 	Name      string
 	Direction int
-	StopIDs   []string
+	Stops     []TripStop
 	Shape     []geo.Point
 	Headways  []Headway
+}
+
+type TripStop struct {
+	StopID    string
+	FromStart time.Duration
 }
 
 // Headway is a service window. Start and End are offsets from midnight of the

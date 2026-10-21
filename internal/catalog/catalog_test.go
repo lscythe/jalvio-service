@@ -118,7 +118,11 @@ func TestParseTrips(t *testing.T) {
 		Headsign:  "Kota",
 		Name:      "Blok M - Kota",
 		Direction: 0,
-		StopIDs:   []string{"G00001", "G00002", "G00003"},
+		Stops: []catalog.TripStop{
+			{StopID: "G00001", FromStart: 0},
+			{StopID: "G00002", FromStart: 20 * time.Minute},
+			{StopID: "G00003", FromStart: 40 * time.Minute},
+		},
 		Shape: []geo.Point{
 			{Lat: -6.243, Lon: 106.801},
 			{Lat: -6.193, Lon: 106.823},
@@ -267,20 +271,33 @@ func TestParseRejectsInvalidFeed(t *testing.T) {
 		},
 		{
 			name: "stop time with unknown stop",
-			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id\n" +
-				"1-R01,0,G00001\n1-R01,1,X99999\n"},
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id,arrival_time\n" +
+				"1-R01,0,G00001,05:00:00\n1-R01,1,X99999,05:20:00\n"},
 			wantErr: "unknown stop",
 		},
 		{
 			name: "stop time with unknown trip",
-			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id\n" +
-				"nope,0,G00001\n"},
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id,arrival_time\n" +
+				"nope,0,G00001,05:00:00\n"},
 			wantErr: "unknown trip",
 		},
 		{
 			name: "trip with fewer than two stops",
-			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id\n" +
-				"1-R01,0,G00001\n1-R02,0,G00003\n1-R02,1,G00001\nJAK.18-R01,0,B00001P\nJAK.18-R01,1,B00002P\n"},
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id,arrival_time\n" +
+				"1-R01,0,G00001,05:00:00\n1-R02,0,G00003,05:00:00\n1-R02,1,G00001,05:40:00\n" +
+				"JAK.18-R01,0,B00001P,05:00:00\nJAK.18-R01,1,B00002P,05:10:00\n"},
+			wantErr: "1-R01",
+		},
+		{
+			name: "invalid arrival time",
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id,arrival_time\n" +
+				"1-R01,0,G00001,5am\n"},
+			wantErr: "arrival_time",
+		},
+		{
+			name: "arrival before the previous stop",
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id,arrival_time\n" +
+				"1-R01,0,G00001,05:20:00\n1-R01,1,G00002,05:00:00\n"},
 			wantErr: "1-R01",
 		},
 		{
@@ -309,8 +326,8 @@ func TestParseRejectsInvalidFeed(t *testing.T) {
 		},
 		{
 			name: "invalid stop sequence",
-			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id\n" +
-				"1-R01,first,G00001\n"},
+			replace: map[string]string{"stop_times.txt": "trip_id,stop_sequence,stop_id,arrival_time\n" +
+				"1-R01,first,G00001,05:00:00\n"},
 			wantErr: "stop_sequence",
 		},
 		{
