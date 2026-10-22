@@ -49,6 +49,9 @@ The image is distroless, runs as a non-root user, and keeps its state in the `/d
 | `/v1/status`         | Version, start time, catalog, live feed, and stop facilities state                         |
 | `/v1/catalog`        | The whole static network for offline use: routes, stops with facilities, patterns, fares   |
 | `/v1/catalog/shapes` | Encoded polylines for every pattern                                                        |
+| `/v1/departures`     | Live buses expected at up to ten stops, grouped by route and headsign                      |
+| `/v1/buses`          | Live buses in a bounding box, on routes, or both                                           |
+| `/v1/buses/{number}` | One live bus and the stops it is expected at                                               |
 
 [`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. The catalog documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
 

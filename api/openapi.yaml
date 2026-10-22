@@ -89,6 +89,89 @@ paths:
         "503":
           $ref: "#/components/responses/NotReady"
 
+  /v1/departures:
+    get:
+      operationId: getDepartures
+      summary: Live departures at up to ten stops
+      description: |
+        Buses the live feed expects at each stop, grouped by route and
+        headsign, soonest first, at most three per group. A platform reports
+        the departures of its station. Scheduled times come from the catalog
+        on the device, not from this endpoint.
+      parameters:
+        - name: stops
+          in: query
+          required: true
+          description: Comma-separated stop IDs, one to ten.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Departures per requested stop, in request order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Departures"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /v1/buses:
+    get:
+      operationId: listBuses
+      summary: Live buses in an area, on routes, or both
+      parameters:
+        - name: bbox
+          in: query
+          required: false
+          description: "`west,south,east,north`, at most one degree on each axis."
+          schema:
+            type: string
+        - name: routes
+          in: query
+          required: false
+          description: Comma-separated route IDs. At least one of `bbox` and `routes` is required.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching buses, ordered by fleet number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Buses"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /v1/buses/{fleetNumber}:
+    get:
+      operationId: getBus
+      summary: One live bus and the stops it is expected at
+      parameters:
+        - name: fleetNumber
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The bus.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusDetail"
+        "404":
+          description: The bus is not reporting.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
 components:
   parameters:
     IfNoneMatch:
@@ -111,6 +194,12 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    BadRequest:
+      description: A query parameter is missing or invalid; `detail` says which.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
 
   schemas:
     Problem:
@@ -123,6 +212,152 @@ components:
           type: string
         status:
           type: integer
+        detail:
+          type: string
+
+    FeedState:
+      type: string
+      description: |
+        Whether live data is flowing. With `disabled` or `disconnected`, an
+        empty result means no data rather than no buses.
+      enum: [disabled, connected, disconnected]
+
+    Departures:
+      type: object
+      additionalProperties: false
+      required: [feed, stops]
+      properties:
+        feed:
+          $ref: "#/components/schemas/FeedState"
+        stops:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [stopId, departures]
+            properties:
+              stopId:
+                type: string
+              departures:
+                type: array
+                description: Empty for stops not in the catalog.
+                items:
+                  $ref: "#/components/schemas/DepartureGroup"
+
+    DepartureGroup:
+      type: object
+      additionalProperties: false
+      required: [routeCode, buses]
+      properties:
+        routeId:
+          type: string
+          description: Absent when the route is not in the catalog.
+        routeCode:
+          type: string
+        headsign:
+          type: string
+        buses:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/Arrival"
+
+    Arrival:
+      type: object
+      additionalProperties: false
+      required: [fleetNumber, patternId, minutes, observedAt, stale]
+      properties:
+        fleetNumber:
+          type: string
+        patternId:
+          type: string
+        minutes:
+          type: integer
+          minimum: 0
+          description: Minutes until arrival as of `observedAt`.
+        observedAt:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+
+    Buses:
+      type: object
+      additionalProperties: false
+      required: [feed, buses]
+      properties:
+        feed:
+          $ref: "#/components/schemas/FeedState"
+        buses:
+          type: array
+          items:
+            $ref: "#/components/schemas/Bus"
+
+    BusDetail:
+      type: object
+      additionalProperties: false
+      required: [feed, bus, upcoming]
+      properties:
+        feed:
+          $ref: "#/components/schemas/FeedState"
+        bus:
+          $ref: "#/components/schemas/Bus"
+        upcoming:
+          type: array
+          description: Stops the bus is expected at, soonest first.
+          items:
+            type: object
+            additionalProperties: false
+            required: [stopId, minutes]
+            properties:
+              stopId:
+                type: string
+              minutes:
+                type: integer
+                minimum: 0
+
+    Bus:
+      type: object
+      additionalProperties: false
+      required: [fleetNumber, routeCode, patternId, position, bearing, observedAt, stale]
+      properties:
+        fleetNumber:
+          type: string
+          description: The number painted on the bus.
+        routeId:
+          type: string
+          description: Absent when the route is not in the catalog.
+        routeCode:
+          type: string
+        patternId:
+          type: string
+        headsign:
+          type: string
+        class:
+          type: string
+        vehicleType:
+          type: string
+        position:
+          $ref: "#/components/schemas/Position"
+        bearing:
+          type: integer
+        prevStopId:
+          type: string
+        nextStopId:
+          type: string
+        atStopId:
+          type: string
+          description: Present while the bus is at a stop.
+        nextStopDistanceMeters:
+          type: integer
+          minimum: 1
+        observedAt:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+          description: No report for a minute; the position may be out of date.
 
     Status:
       type: object

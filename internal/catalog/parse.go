@@ -366,13 +366,13 @@ func (p *parser) build(version string) *Catalog {
 	for _, t := range p.trips {
 		trips = append(trips, *t)
 	}
-	c.trips, c.tripIndex = sortedByID(trips, func(t Trip) string { return t.ID })
-	c.services, c.serviceIndex = sortedByID(slices.Collect(maps.Values(p.services)), func(s Service) string { return s.ID })
-	c.fares, c.fareIndex = sortedByID(slices.Collect(maps.Values(p.fares)), func(f Fare) string { return f.ID })
+	c.trips, c.tripIndex = sortedBy(trips, func(t Trip) string { return t.ID })
+	c.services, c.serviceIndex = sortedBy(slices.Collect(maps.Values(p.services)), func(s Service) string { return s.ID })
+	c.fares, c.fareIndex = sortedBy(slices.Collect(maps.Values(p.fares)), func(f Fare) string { return f.ID })
 	for _, r := range p.routes {
 		c.routes = append(c.routes, *r)
 	}
-	slices.SortFunc(c.routes, func(a, b Route) int { return cmp.Compare(a.Code, b.Code) })
+	c.routes, c.codeIndex = sortedBy(c.routes, func(r Route) string { return r.Code })
 	for i, r := range c.routes {
 		c.routeIndex[r.ID] = i
 	}
@@ -386,16 +386,16 @@ func (p *parser) build(version string) *Catalog {
 		slices.Sort(s.RouteIDs)
 		c.stops = append(c.stops, *s)
 	}
-	c.stops, c.stopIndex = sortedByID(c.stops, func(s Stop) string { return s.ID })
+	c.stops, c.stopIndex = sortedBy(c.stops, func(s Stop) string { return s.ID })
 	c.search = newSearchIndex(c.routes, c.stops)
 	return c
 }
 
-func sortedByID[T any](items []T, id func(T) string) ([]T, map[string]int) {
-	slices.SortFunc(items, func(a, b T) int { return cmp.Compare(id(a), id(b)) })
+func sortedBy[T any](items []T, key func(T) string) ([]T, map[string]int) {
+	slices.SortFunc(items, func(a, b T) int { return cmp.Compare(key(a), key(b)) })
 	index := make(map[string]int, len(items))
 	for i, item := range items {
-		index[id(item)] = i
+		index[key(item)] = i
 	}
 	return items, index
 }

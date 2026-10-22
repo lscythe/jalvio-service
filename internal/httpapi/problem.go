@@ -10,15 +10,25 @@ type problem struct {
 	Type   string `json:"type"`
 	Title  string `json:"title"`
 	Status int    `json:"status"`
+	Detail string `json:"detail,omitempty"`
 }
 
 func writeProblem(w http.ResponseWriter, status int) {
+	writeProblemDetail(w, status, "")
+}
+
+func writeBadRequest(w http.ResponseWriter, detail string) {
+	writeProblemDetail(w, http.StatusBadRequest, detail)
+}
+
+func writeProblemDetail(w http.ResponseWriter, status int, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(problem{
 		Type:   "about:blank",
 		Title:  http.StatusText(status),
 		Status: status,
+		Detail: detail,
 	})
 }
 

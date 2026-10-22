@@ -49,16 +49,18 @@ func RejectReason(err error) string {
 
 // Update is one bus position report from the live feed.
 type Update struct {
-	Plate       string
-	RouteCode   string
-	TripID      string
-	Headsign    string
-	Class       string
-	VehicleType string
-	Position    geo.Point
-	Bearing     int
-	PrevStopID  string
-	NextStopID  string
+	Plate                  string
+	RouteCode              string
+	TripID                 string
+	Headsign               string
+	Class                  string
+	VehicleType            string
+	Position               geo.Point
+	Bearing                int
+	PrevStopID             string
+	NextStopID             string
+	AtStopID               string
+	NextStopDistanceMeters int
 	// ETAs maps a stop or station ID to the expected minutes until arrival.
 	ETAs       map[string]int
 	ObservedAt time.Time
@@ -72,32 +74,33 @@ type payload struct {
 	Bearing       float64            `json:"bearing"`
 	PrevStops     string             `json:"prev_stops"`
 	NextStops     string             `json:"next_stops"`
+	CurrStops     string             `json:"curr_stops"`
+	NextDistance  number             `json:"estimated_distance_next_stops"`
 	RouteCode     string             `json:"route_code"`
 	TripID        string             `json:"trip_id"`
 	TripHeadsign  string             `json:"trip_headsign"`
 	Type          string             `json:"type"`
 	BusType       string             `json:"bus_type"`
 	BusBodyNo     string             `json:"bus_body_no"`
-	Timestamp     epochMillis        `json:"timestamp"`
-	LastUpdate    epochMillis        `json:"last_update"`
+	Timestamp     number             `json:"timestamp"`
+	LastUpdate    number             `json:"last_update"`
 	ETAs          map[string]float64 `json:"eta_by_parent_stop_id"`
 }
 
-// epochMillis accepts epoch milliseconds as a JSON number or string, since
-// the feed sends both.
-type epochMillis int64
+// number accepts a JSON number or a numeric string, since the feed sends both.
+type number float64
 
-func (e *epochMillis) UnmarshalJSON(b []byte) error {
+func (n *number) UnmarshalJSON(b []byte) error {
 	s := strings.Trim(string(b), `"`)
 	if s == "" || s == "null" {
-		*e = 0
+		*n = 0
 		return nil
 	}
-	n, err := strconv.ParseFloat(s, 64)
+	v, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return fmt.Errorf("timestamp %q is not a number", s)
+		return fmt.Errorf("%q is not a number", s)
 	}
-	*e = epochMillis(n)
+	*n = number(v)
 	return nil
 }
 
@@ -144,18 +147,20 @@ func Decode(topic string, data []byte) (Update, error) {
 	}
 
 	return Update{
-		Plate:       p.BusBodyNo,
-		RouteCode:   p.RouteCode,
-		TripID:      p.TripID,
-		Headsign:    p.TripHeadsign,
-		Class:       p.Type,
-		VehicleType: p.BusType,
-		Position:    pos,
-		Bearing:     int(math.Round(p.Bearing)),
-		PrevStopID:  stopID(p.PrevStops),
-		NextStopID:  stopID(p.NextStops),
-		ETAs:        etas,
-		ObservedAt:  time.UnixMilli(int64(observed)).UTC(),
+		Plate:                  p.BusBodyNo,
+		RouteCode:              p.RouteCode,
+		TripID:                 p.TripID,
+		Headsign:               p.TripHeadsign,
+		Class:                  p.Type,
+		VehicleType:            p.BusType,
+		Position:               pos,
+		Bearing:                int(math.Round(p.Bearing)),
+		PrevStopID:             stopID(p.PrevStops),
+		NextStopID:             stopID(p.NextStops),
+		AtStopID:               stopID(p.CurrStops),
+		NextStopDistanceMeters: int(math.Round(float64(p.NextDistance))),
+		ETAs:                   etas,
+		ObservedAt:             time.UnixMilli(int64(observed)).UTC(),
 	}, nil
 }
 

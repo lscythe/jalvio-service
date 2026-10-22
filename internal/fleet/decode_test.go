@@ -46,18 +46,19 @@ func TestDecode(t *testing.T) {
 		t.Fatalf("Decode: %v", err)
 	}
 	want := fleet.Update{
-		Plate:       "TST-001",
-		RouteCode:   "3F",
-		TripID:      "3F-L01",
-		Headsign:    "Kalideres",
-		Class:       "BRT",
-		VehicleType: "Maxi Bus",
-		Position:    geo.Point{Lat: -6.18512, Lon: 106.79674},
-		Bearing:     354,
-		PrevStopID:  "H00220S",
-		NextStopID:  "H00204S",
-		ETAs:        map[string]int{"H00204S": 1, "H00210S": 2, "H00235P": 11},
-		ObservedAt:  time.UnixMilli(1785355911000).UTC(),
+		Plate:                  "TST-001",
+		RouteCode:              "3F",
+		TripID:                 "3F-L01",
+		Headsign:               "Kalideres",
+		Class:                  "BRT",
+		VehicleType:            "Maxi Bus",
+		Position:               geo.Point{Lat: -6.18512, Lon: 106.79674},
+		Bearing:                354,
+		PrevStopID:             "H00220S",
+		NextStopID:             "H00204S",
+		NextStopDistanceMeters: 67,
+		ETAs:                   map[string]int{"H00204S": 1, "H00210S": 2, "H00235P": 11},
+		ObservedAt:             time.UnixMilli(1785355911000).UTC(),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Decode =\n%+v\nwant\n%+v", got, want)
@@ -107,6 +108,24 @@ func TestDecodeLenientFields(t *testing.T) {
 			},
 		},
 		{
+			name:    "at a stop, with the distance as a string",
+			changes: map[string]any{"curr_stops": "H00204S-Kota Bambu Arah Utara", "estimated_distance_next_stops": "12.6"},
+			check: func(t *testing.T, u fleet.Update) {
+				if u.AtStopID != "H00204S" || u.NextStopDistanceMeters != 13 {
+					t.Errorf("AtStopID, NextStopDistanceMeters = %q, %d; want H00204S, 13", u.AtStopID, u.NextStopDistanceMeters)
+				}
+			},
+		},
+		{
+			name:    "missing distance",
+			changes: map[string]any{"estimated_distance_next_stops": nil},
+			check: func(t *testing.T, u fleet.Update) {
+				if u.NextStopDistanceMeters != 0 {
+					t.Errorf("NextStopDistanceMeters = %d, want 0", u.NextStopDistanceMeters)
+				}
+			},
+		},
+		{
 			name:    "negative ETAs are dropped",
 			changes: map[string]any{"eta_by_parent_stop_id": map[string]any{"H00204S": -1, "H00210S": 3}},
 			check: func(t *testing.T, u fleet.Update) {
@@ -147,6 +166,7 @@ func TestDecodeRejectsMalformedMessages(t *testing.T) {
 		{"invalid JSON", topic, raw("{"), fleet.ErrPayload, "payload"},
 		{"no timestamp", topic, fixture(map[string]any{"timestamp": nil, "last_update": nil}), fleet.ErrNoTimestamp, "no_timestamp"},
 		{"bad timestamp", topic, fixture(map[string]any{"timestamp": "soon", "last_update": nil}), fleet.ErrPayload, "payload"},
+		{"bad distance", topic, fixture(map[string]any{"estimated_distance_next_stops": "far"}), fleet.ErrPayload, "payload"},
 		{
 			"no position", topic,
 			fixture(map[string]any{"latitude": 0, "longitude": 0, "snap_latitude": 0, "snap_longitude": 0}),

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
+	"github.com/lscythe/jalvio-service/internal/fleet"
+	"github.com/lscythe/jalvio-service/internal/geo"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 	"github.com/lscythe/jalvio-service/internal/stopinfo"
 )
@@ -31,6 +33,9 @@ type StopInfo interface {
 
 type Buses interface {
 	Len() int
+	Bus(fleetNumber string) (fleet.Bus, bool)
+	InBBox(box geo.BBox, routeCodes []string) []fleet.Bus
+	ArrivalsAt(stopID string) []fleet.Arrival
 }
 
 type Deps struct {
@@ -100,7 +105,25 @@ func New(d Deps) http.Handler {
 	docs := &catalogDocuments{catalogs: d.Catalogs, stopInfo: d.StopInfo}
 	mux.HandleFunc("GET /v1/catalog", docs.serveCatalog)
 	mux.HandleFunc("GET /v1/catalog/shapes", docs.serveShapes)
+	l := &live{catalogs: d.Catalogs, feed: d.Feed, buses: d.Buses}
+	mux.HandleFunc("GET /v1/departures", l.serveDepartures)
+	mux.HandleFunc("GET /v1/buses", l.serveBuses)
+	mux.HandleFunc("GET /v1/buses/{fleetNumber}", l.serveBus)
 	return problemFallback(mux)
+}
+
+func feedState(feed Feed) string {
+	if feed == nil {
+		return "disabled"
+	}
+	return connectionState(feed.Status())
+}
+
+func connectionState(st mqttfeed.Status) string {
+	if st.Connected {
+		return "connected"
+	}
+	return "disconnected"
 }
 
 func newFeedStatus(feed Feed, buses int) feedStatus {
@@ -108,12 +131,8 @@ func newFeedStatus(feed Feed, buses int) feedStatus {
 		return feedStatus{State: "disabled", Buses: buses}
 	}
 	st := feed.Status()
-	state := "disconnected"
-	if st.Connected {
-		state = "connected"
-	}
 	return feedStatus{
-		State:         state,
+		State:         connectionState(st),
 		LastMessageAt: st.LastMessageAt,
 		Reconnects:    st.Reconnects,
 		Messages:      st.Messages,
