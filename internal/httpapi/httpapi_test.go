@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
+	"github.com/lscythe/jalvio-service/internal/fleet"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 	"github.com/lscythe/jalvio-service/internal/stopinfo"
@@ -36,9 +37,12 @@ type fakeStopInfo struct {
 func (f fakeStopInfo) Status() stopinfo.Status     { return f.status }
 func (f fakeStopInfo) Current() *stopinfo.Snapshot { return f.current }
 
-type fakeBuses int
+type countedBuses struct {
+	*fleet.Fleet
+	n int
+}
 
-func (n fakeBuses) Len() int { return int(n) }
+func (c countedBuses) Len() int { return c.n }
 
 func newHandler(ready bool) http.Handler {
 	return httpapi.New(deps(ready))
@@ -49,7 +53,7 @@ func deps(ready bool) httpapi.Deps {
 		Info:     httpapi.Info{Version: "1.2.3", StartedAt: startedAt},
 		Ready:    func() bool { return ready },
 		Catalogs: fakeCatalogs{},
-		Buses:    fakeBuses(0),
+		Buses:    fleet.New(),
 	}
 }
 
@@ -138,7 +142,7 @@ func TestStatus(t *testing.T) {
 			d.Catalogs = fakeCatalogs{status: tt.catalog}
 			d.Feed = tt.feed
 			d.StopInfo = tt.stops
-			d.Buses = fakeBuses(tt.buses)
+			d.Buses = countedBuses{fleet.New(), tt.buses}
 			rec := serve(t, httpapi.New(d), http.MethodGet, "/v1/status")
 
 			if rec.Code != http.StatusOK {
@@ -158,6 +162,7 @@ type problem struct {
 	Type   string `json:"type"`
 	Title  string `json:"title"`
 	Status int    `json:"status"`
+	Detail string `json:"detail"`
 }
 
 func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problem {

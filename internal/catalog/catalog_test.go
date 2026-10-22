@@ -155,6 +155,18 @@ func TestParseTrips(t *testing.T) {
 	}
 }
 
+func TestRouteByCode(t *testing.T) {
+	c := parseFixture(t)
+
+	r, ok := c.RouteByCode("JAK.18")
+	if !ok || r.ID != "JAK.18" {
+		t.Errorf("RouteByCode(JAK.18) = %+v, %v; want route JAK.18", r, ok)
+	}
+	if _, ok := c.RouteByCode("99"); ok {
+		t.Error("RouteByCode found an unknown code")
+	}
+}
+
 func TestCatalogListsAreOrderedByID(t *testing.T) {
 	c := parseFixture(t)
 

@@ -12,6 +12,7 @@ type Catalog struct {
 	version      string
 	routes       []Route
 	routeIndex   map[string]int
+	codeIndex    map[string]int
 	stops        []Stop
 	stopIndex    map[string]int
 	trips        []Trip
@@ -112,6 +113,9 @@ func (c *Catalog) Version() string { return c.version }
 func (c *Catalog) Routes() []Route { return c.routes }
 
 func (c *Catalog) Route(id string) (Route, bool) { return lookup(c.routes, c.routeIndex, id) }
+
+// RouteByCode finds a route by the code live buses report.
+func (c *Catalog) RouteByCode(code string) (Route, bool) { return lookup(c.routes, c.codeIndex, code) }
 
 // Stops, Trips, Services and Fares are ordered by ID.
 func (c *Catalog) Stops() []Stop { return c.stops }

@@ -144,6 +144,15 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 	if catalog.FeedVersion != status.Catalog.Version {
 		t.Errorf("catalog feedVersion = %q, want %q", catalog.FeedVersion, status.Catalog.Version)
 	}
+
+	var departures struct {
+		Feed  string            `json:"feed"`
+		Stops []json.RawMessage `json:"stops"`
+	}
+	getJSON(t, base+"/v1/departures?stops=G00001", &departures)
+	if departures.Feed != "disabled" || len(departures.Stops) != 1 {
+		t.Errorf("departures = %+v, want one stop with the feed disabled", departures)
+	}
 }
 
 func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
