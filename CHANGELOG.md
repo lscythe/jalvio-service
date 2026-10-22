@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/lscythe/jalvio-service/compare/v0.2.0...v0.3.0) (2026-10-22)
+
+
+### Features
+
+* **catalog:** keep scheduled arrival times per trip stop ([#28](https://github.com/lscythe/jalvio-service/issues/28)) ([f00c7d9](https://github.com/lscythe/jalvio-service/commit/f00c7d9633abd6e9d55db4994c6b641f87737df8))
+* **catalog:** parse fares, platform codes, and transfers ([#29](https://github.com/lscythe/jalvio-service/issues/29)) ([2952d1d](https://github.com/lscythe/jalvio-service/commit/2952d1d3057e1ab5323a8f7d0fd13f6039ddb410))
+* **catalog:** parse service calendars ([#27](https://github.com/lscythe/jalvio-service/issues/27)) ([4d19b70](https://github.com/lscythe/jalvio-service/commit/4d19b70be195d9e708e9886ec22a97208aa6a6e8))
+* serve live departures and buses ([#31](https://github.com/lscythe/jalvio-service/issues/31)) ([47524e4](https://github.com/lscythe/jalvio-service/commit/47524e4055bf03db529010edad9f3a30635134e5))
+* serve the offline catalog ([#30](https://github.com/lscythe/jalvio-service/issues/30)) ([16cf7ad](https://github.com/lscythe/jalvio-service/commit/16cf7ada18ca2dee5290bc238d5fa901461981d7))
+
+
+### Bug Fixes
+
+* **deps:** update Go to 1.27.3 ([#25](https://github.com/lscythe/jalvio-service/issues/25)) ([bb96273](https://github.com/lscythe/jalvio-service/commit/bb9627388310bce51b79cf02bd92c8dda59cb162))
+
 ## [0.2.0](https://github.com/lscythe/jalvio-service/compare/v0.1.0...v0.2.0) (2026-10-19)
 
 
