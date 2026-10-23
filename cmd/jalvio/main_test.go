@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/lscythe/jalvio-service/internal/catalog/catalogtest"
 	"github.com/lscythe/jalvio-service/internal/config"
 )
@@ -79,9 +81,9 @@ type serviceStatus struct {
 	} `json:"stopFacilities"`
 }
 
-// startService runs the service against a local copy of the fixture feed and
-// waits until it is ready.
-func startService(t *testing.T, mqttURL, stopAPIURL string) (base, dataDir string) {
+// startService runs the service until ctx is cancelled or the test ends,
+// against a local copy of the fixture feed, and waits until it is ready.
+func startService(t *testing.T, ctx context.Context, mqttURL, stopAPIURL string) (base, dataDir string) {
 	t.Helper()
 	feed := catalogtest.Feed(t, nil)
 	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -91,17 +93,18 @@ func startService(t *testing.T, mqttURL, stopAPIURL string) (base, dataDir strin
 
 	dataDir = filepath.Join(t.TempDir(), "data")
 	cfg := config.Config{
-		DataDir:           dataDir,
-		GTFSURL:           feedServer.URL,
-		GTFSRefresh:       time.Hour,
-		MQTTURL:           mqttURL,
-		StopAPIURL:        stopAPIURL,
-		StopAPIAppVersion: "1.0.0",
-		StopInfoSyncAt:    3 * time.Hour,
+		DataDir:            dataDir,
+		GTFSURL:            feedServer.URL,
+		GTFSRefresh:        time.Hour,
+		MQTTURL:            mqttURL,
+		StopAPIURL:         stopAPIURL,
+		StopAPIAppVersion:  "1.0.0",
+		StopInfoSyncAt:     3 * time.Hour,
+		MaxLiveConnections: 10,
 	}
 	ln := listen(t)
 	base = "http://" + ln.Addr().String()
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- runService(ctx, cfg, ln, discard) }()
 	t.Cleanup(func() {
@@ -120,7 +123,7 @@ func startService(t *testing.T, mqttURL, stopAPIURL string) (base, dataDir strin
 }
 
 func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
-	base, dataDir := startService(t, "", "")
+	base, dataDir := startService(t, t.Context(), "", "")
 
 	var status serviceStatus
 	getJSON(t, base+"/v1/status", &status)
@@ -155,8 +158,30 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 	}
 }
 
+func TestRunServiceClosesLiveStreamsOnShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	base, _ := startService(t, ctx, "", "")
+	dialer := websocket.Dialer{Subprotocols: []string{"jalvio.live.v1"}}
+	conn, resp, err := dialer.DialContext(t.Context(), "ws"+strings.TrimPrefix(base, "http")+"/v1/live", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	_ = resp.Body.Close()
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("first frame: %v", err)
+	}
+
+	cancel()
+	_, _, err = conn.ReadMessage()
+	if !websocket.IsCloseError(err, websocket.CloseGoingAway) {
+		t.Errorf("after shutdown: %v, want close %d", err, websocket.CloseGoingAway)
+	}
+}
+
 func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
-	base, dataDir := startService(t, "wss://127.0.0.1:1/mqtt", "")
+	base, dataDir := startService(t, t.Context(), "wss://127.0.0.1:1/mqtt", "")
 
 	var status serviceStatus
 	getJSON(t, base+"/v1/status", &status)
@@ -191,7 +216,7 @@ func TestRunServiceSyncsStopFacilities(t *testing.T) {
 	stopSearchGap, stopDetailGap = 0, 0
 	t.Cleanup(func() { stopSearchGap, stopDetailGap = searchGap, detailGap })
 
-	base, dataDir := startService(t, "", stopAPI(t))
+	base, dataDir := startService(t, t.Context(), "", stopAPI(t))
 
 	var status serviceStatus
 	deadline := time.Now().Add(5 * time.Second)
@@ -230,7 +255,7 @@ func listenOn(addr string) func(string) string {
 }
 
 func TestHealthcheck(t *testing.T) {
-	base, _ := startService(t, "", "")
+	base, _ := startService(t, t.Context(), "", "")
 	_, port, _ := net.SplitHostPort(strings.TrimPrefix(base, "http://"))
 
 	if err := run(t.Context(), []string{"healthcheck"}, listenOn(":"+port), discard); err != nil {

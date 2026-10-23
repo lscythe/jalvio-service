@@ -44,6 +44,7 @@ func TestLoadDefaults(t *testing.T) {
 		GTFSRefresh:        24 * time.Hour,
 		MQTTClientIDPrefix: "jalvio-",
 		StopInfoSyncAt:     3 * time.Hour,
+		MaxLiveConnections: 2000,
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)
@@ -62,6 +63,8 @@ func TestLoadOverrides(t *testing.T) {
 		"STOP_API_URL":          "https://stops.example.com/v1",
 		"STOP_API_APP_VERSION":  "1.0.0",
 		"STOPINFO_SYNC_AT":      "04:30",
+		"MAX_LIVE_CONNECTIONS":  "50",
+		"BROWSER_ORIGINS":       "https://app.example.com  http://localhost:5173",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -78,6 +81,8 @@ func TestLoadOverrides(t *testing.T) {
 		StopAPIURL:         "https://stops.example.com/v1",
 		StopAPIAppVersion:  "1.0.0",
 		StopInfoSyncAt:     4*time.Hour + 30*time.Minute,
+		MaxLiveConnections: 50,
+		BrowserOrigins:     []string{"https://app.example.com", "http://localhost:5173"},
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)
@@ -104,6 +109,11 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"STOP_API_APP_VERSION", ""},
 		{"STOPINFO_SYNC_AT", "25:00"},
 		{"STOPINFO_SYNC_AT", "3am"},
+		{"MAX_LIVE_CONNECTIONS", "0"},
+		{"MAX_LIVE_CONNECTIONS", "many"},
+		{"BROWSER_ORIGINS", "app.example.com"},
+		{"BROWSER_ORIGINS", "ws://app.example.com"},
+		{"BROWSER_ORIGINS", "https://app.example.com/"},
 	}
 	for _, tt := range tests {
 		vars := map[string]string{

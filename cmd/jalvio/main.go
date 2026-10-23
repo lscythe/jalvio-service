@@ -135,6 +135,8 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 		Feed:     feed,
 		Buses:    buses,
 		StopInfo: stopInfo,
+		Live:     httpapi.LiveConfig{MaxConnections: cfg.MaxLiveConnections, BrowserOrigins: cfg.BrowserOrigins},
+		Done:     ctx.Done(),
 	})
 
 	var workers sync.WaitGroup

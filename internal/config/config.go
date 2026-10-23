@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -23,7 +25,11 @@ type Config struct {
 	StopAPIURL        string
 	StopAPIAppVersion string
 	// StopInfoSyncAt is the daily sync time as an offset from local midnight.
-	StopInfoSyncAt time.Duration
+	StopInfoSyncAt     time.Duration
+	MaxLiveConnections int
+	// BrowserOrigins may open the live stream; requests without an Origin
+	// header, such as the native apps', are always allowed.
+	BrowserOrigins []string
 }
 
 // ListenAddress returns JALVIO_LISTEN or its default, without validating it.
@@ -79,6 +85,18 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("STOPINFO_SYNC_AT: %q is not a HH:MM time", getenv("STOPINFO_SYNC_AT"))
 	}
 	cfg.StopInfoSyncAt = time.Duration(syncAt.Hour())*time.Hour + time.Duration(syncAt.Minute())*time.Minute
+
+	maxLive, err := strconv.Atoi(valueOr(getenv("MAX_LIVE_CONNECTIONS"), "2000"))
+	if err != nil || maxLive <= 0 {
+		return Config{}, fmt.Errorf("MAX_LIVE_CONNECTIONS: %q is not a positive integer", getenv("MAX_LIVE_CONNECTIONS"))
+	}
+	cfg.MaxLiveConnections = maxLive
+	for _, origin := range strings.Fields(getenv("BROWSER_ORIGINS")) {
+		if u, err := url.Parse(origin); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" {
+			return Config{}, fmt.Errorf("BROWSER_ORIGINS: %q is not an http(s) origin", origin)
+		}
+		cfg.BrowserOrigins = append(cfg.BrowserOrigins, origin)
+	}
 	return cfg, nil
 }
 

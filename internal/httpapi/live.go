@@ -246,6 +246,10 @@ func parseBBox(s string) (geo.BBox, error) {
 		}
 		v[i] = n
 	}
+	return newBBox(v)
+}
+
+func newBBox(v [4]float64) (geo.BBox, error) {
 	box := geo.BBox{West: v[0], South: v[1], East: v[2], North: v[3]}
 	if !(box.West < box.East && box.South < box.North && box.East-box.West <= maxBBoxDegrees && box.North-box.South <= maxBBoxDegrees) {
 		return geo.BBox{}, errors.New("bbox is empty or too large")

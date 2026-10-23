@@ -25,6 +25,8 @@ go run ./cmd/jalvio
 | `STOP_API_URL`          | empty     | Stop API base URL for the facilities sync; empty turns it off   |
 | `STOP_API_APP_VERSION`  | empty     | App version the stop API expects; required with `STOP_API_URL`  |
 | `STOPINFO_SYNC_AT`      | `03:00`   | Daily facilities sync time (`HH:MM`) in the local zone (`TZ`)   |
+| `MAX_LIVE_CONNECTIONS`  | `2000`    | Open `/v1/live` connections allowed at once                     |
+| `BROWSER_ORIGINS`       | empty     | Space-separated origins allowed on `/v1/live`; empty: apps only |
 | `JALVIO_LISTEN`         | `:8080`   | HTTP listen address                                             |
 | `JALVIO_DATA_DIR`       | `./data`  | Stored feed, client and device IDs, and snapshots               |
 
@@ -52,8 +54,9 @@ The image is distroless, runs as a non-root user, and keeps its state in the `/d
 | `/v1/departures`     | Live buses expected at up to ten stops, grouped by route and headsign                      |
 | `/v1/buses`          | Live buses in a bounding box, on routes, or both                                           |
 | `/v1/buses/{number}` | One live bus and the stops it is expected at                                               |
+| `/v1/live`           | WebSocket for the map: a snapshot per subscribe (bounding box, routes), then 1 s updates   |
 
-[`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. The catalog documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
+[`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. [`api/live.schema.json`](api/live.schema.json) does the same for `/v1/live` frames. The catalog documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
 
 ## Develop
 
