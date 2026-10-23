@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -82,8 +85,9 @@ type serviceStatus struct {
 }
 
 // startService runs the service until ctx is cancelled or the test ends,
-// against a local copy of the fixture feed, and waits until it is ready.
-func startService(t *testing.T, ctx context.Context, mqttURL, stopAPIURL string) (base, dataDir string) {
+// against a local copy of the fixture feed and the upstreams set in cfg, and
+// waits until it is ready.
+func startService(t *testing.T, ctx context.Context, cfg config.Config) (base, dataDir string) {
 	t.Helper()
 	feed := catalogtest.Feed(t, nil)
 	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -92,16 +96,14 @@ func startService(t *testing.T, ctx context.Context, mqttURL, stopAPIURL string)
 	t.Cleanup(feedServer.Close)
 
 	dataDir = filepath.Join(t.TempDir(), "data")
-	cfg := config.Config{
-		DataDir:            dataDir,
-		GTFSURL:            feedServer.URL,
-		GTFSRefresh:        time.Hour,
-		MQTTURL:            mqttURL,
-		StopAPIURL:         stopAPIURL,
-		StopAPIAppVersion:  "1.0.0",
-		StopInfoSyncAt:     3 * time.Hour,
-		MaxLiveConnections: 10,
-	}
+	cfg.DataDir = dataDir
+	cfg.GTFSURL = feedServer.URL
+	cfg.GTFSRefresh = time.Hour
+	cfg.StopAPIAppVersion = "1.0.0"
+	cfg.StopInfoSyncAt = 3 * time.Hour
+	cfg.MaxLiveConnections = 10
+	cfg.PhotonUserAgent = "jalvio-test"
+	cfg.PlacesRequestsPerMinute = 60
 	ln := listen(t)
 	base = "http://" + ln.Addr().String()
 	ctx, cancel := context.WithCancel(ctx)
@@ -123,7 +125,7 @@ func startService(t *testing.T, ctx context.Context, mqttURL, stopAPIURL string)
 }
 
 func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
-	base, dataDir := startService(t, t.Context(), "", "")
+	base, dataDir := startService(t, t.Context(), config.Config{})
 
 	var status serviceStatus
 	getJSON(t, base+"/v1/status", &status)
@@ -160,7 +162,7 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 
 func TestRunServiceClosesLiveStreamsOnShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	base, _ := startService(t, ctx, "", "")
+	base, _ := startService(t, ctx, config.Config{})
 	dialer := websocket.Dialer{Subprotocols: []string{"jalvio.live.v1"}}
 	conn, resp, err := dialer.DialContext(t.Context(), "ws"+strings.TrimPrefix(base, "http")+"/v1/live", nil)
 	if err != nil {
@@ -180,8 +182,47 @@ func TestRunServiceClosesLiveStreamsOnShutdown(t *testing.T) {
 	}
 }
 
+func TestRunServiceSearchesPlacesInTheNetworkArea(t *testing.T) {
+	var query url.Values
+	var userAgent string
+	photon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query, userAgent = r.URL.Query(), r.UserAgent()
+		_, _ = w.Write([]byte(`{"features":[{"geometry":{"coordinates":[106.82,-6.195]},
+			"properties":{"osm_type":"W","osm_id":123,"osm_value":"mall","name":"Grand Indonesia","city":"Jakarta"}}]}`))
+	}))
+	t.Cleanup(photon.Close)
+
+	base, _ := startService(t, t.Context(), config.Config{PhotonURL: photon.URL})
+
+	var found struct {
+		Places []struct {
+			ID   string `json:"id"`
+			Kind string `json:"kind"`
+		} `json:"places"`
+	}
+	getJSON(t, base+"/v1/places?q=grand", &found)
+	if len(found.Places) != 1 || found.Places[0].ID != "osm:W123" || found.Places[0].Kind != "mall" {
+		t.Errorf("places = %+v, want osm:W123, a mall", found.Places)
+	}
+	// The fixture stops span 106.801–106.853 E and 6.257–6.137 S.
+	want := []float64{106.701, -6.357, 106.953, -6.037}
+	got := strings.Split(query.Get("bbox"), ",")
+	if len(got) != len(want) {
+		t.Fatalf("geocoder bbox = %q, want about %v", query.Get("bbox"), want)
+	}
+	for i, s := range got {
+		if v, err := strconv.ParseFloat(s, 64); err != nil || math.Abs(v-want[i]) > 1e-9 {
+			t.Errorf("geocoder bbox = %q, want about %v", query.Get("bbox"), want)
+			break
+		}
+	}
+	if userAgent != "jalvio-test" {
+		t.Errorf("geocoder User-Agent = %q, want jalvio-test", userAgent)
+	}
+}
+
 func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
-	base, dataDir := startService(t, t.Context(), "wss://127.0.0.1:1/mqtt", "")
+	base, dataDir := startService(t, t.Context(), config.Config{MQTTURL: "wss://127.0.0.1:1/mqtt"})
 
 	var status serviceStatus
 	getJSON(t, base+"/v1/status", &status)
@@ -216,7 +257,7 @@ func TestRunServiceSyncsStopFacilities(t *testing.T) {
 	stopSearchGap, stopDetailGap = 0, 0
 	t.Cleanup(func() { stopSearchGap, stopDetailGap = searchGap, detailGap })
 
-	base, dataDir := startService(t, t.Context(), "", stopAPI(t))
+	base, dataDir := startService(t, t.Context(), config.Config{StopAPIURL: stopAPI(t)})
 
 	var status serviceStatus
 	deadline := time.Now().Add(5 * time.Second)
@@ -255,7 +296,7 @@ func listenOn(addr string) func(string) string {
 }
 
 func TestHealthcheck(t *testing.T) {
-	base, _ := startService(t, t.Context(), "", "")
+	base, _ := startService(t, t.Context(), config.Config{})
 	_, port, _ := net.SplitHostPort(strings.TrimPrefix(base, "http://"))
 
 	if err := run(t.Context(), []string{"healthcheck"}, listenOn(":"+port), discard); err != nil {

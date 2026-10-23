@@ -38,13 +38,14 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	want := config.Config{
-		Listen:             ":8080",
-		DataDir:            "./data",
-		GTFSURL:            feedURL,
-		GTFSRefresh:        24 * time.Hour,
-		MQTTClientIDPrefix: "jalvio-",
-		StopInfoSyncAt:     3 * time.Hour,
-		MaxLiveConnections: 2000,
+		Listen:                  ":8080",
+		DataDir:                 "./data",
+		GTFSURL:                 feedURL,
+		GTFSRefresh:             24 * time.Hour,
+		MQTTClientIDPrefix:      "jalvio-",
+		StopInfoSyncAt:          3 * time.Hour,
+		MaxLiveConnections:      2000,
+		PlacesRequestsPerMinute: 60,
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)
@@ -53,36 +54,42 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadOverrides(t *testing.T) {
 	cfg, err := config.Load(env(map[string]string{
-		"JALVIO_LISTEN":         "127.0.0.1:9000",
-		"JALVIO_DATA_DIR":       "/data",
-		"GTFS_REFRESH":          "6h",
-		"MQTT_URL":              "wss://broker.example.com:8084/mqtt",
-		"MQTT_TLS_SERVER_NAME":  "cert.example.com",
-		"MQTT_DIAL_ADDRESS":     "192.0.2.10:8084",
-		"MQTT_CLIENT_ID_PREFIX": "client_",
-		"STOP_API_URL":          "https://stops.example.com/v1",
-		"STOP_API_APP_VERSION":  "1.0.0",
-		"STOPINFO_SYNC_AT":      "04:30",
-		"MAX_LIVE_CONNECTIONS":  "50",
-		"BROWSER_ORIGINS":       "https://app.example.com  http://localhost:5173",
+		"JALVIO_LISTEN":              "127.0.0.1:9000",
+		"JALVIO_DATA_DIR":            "/data",
+		"GTFS_REFRESH":               "6h",
+		"MQTT_URL":                   "wss://broker.example.com:8084/mqtt",
+		"MQTT_TLS_SERVER_NAME":       "cert.example.com",
+		"MQTT_DIAL_ADDRESS":          "192.0.2.10:8084",
+		"MQTT_CLIENT_ID_PREFIX":      "client_",
+		"STOP_API_URL":               "https://stops.example.com/v1",
+		"STOP_API_APP_VERSION":       "1.0.0",
+		"STOPINFO_SYNC_AT":           "04:30",
+		"MAX_LIVE_CONNECTIONS":       "50",
+		"BROWSER_ORIGINS":            "https://app.example.com  http://localhost:5173",
+		"PHOTON_URL":                 "https://places.example.com",
+		"PHOTON_USER_AGENT":          "jalvio-test (ops@example.com)",
+		"PLACES_REQUESTS_PER_MINUTE": "30",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	want := config.Config{
-		Listen:             "127.0.0.1:9000",
-		DataDir:            "/data",
-		GTFSURL:            feedURL,
-		GTFSRefresh:        6 * time.Hour,
-		MQTTURL:            "wss://broker.example.com:8084/mqtt",
-		MQTTServerName:     "cert.example.com",
-		MQTTDialAddress:    "192.0.2.10:8084",
-		MQTTClientIDPrefix: "client_",
-		StopAPIURL:         "https://stops.example.com/v1",
-		StopAPIAppVersion:  "1.0.0",
-		StopInfoSyncAt:     4*time.Hour + 30*time.Minute,
-		MaxLiveConnections: 50,
-		BrowserOrigins:     []string{"https://app.example.com", "http://localhost:5173"},
+		Listen:                  "127.0.0.1:9000",
+		DataDir:                 "/data",
+		GTFSURL:                 feedURL,
+		GTFSRefresh:             6 * time.Hour,
+		MQTTURL:                 "wss://broker.example.com:8084/mqtt",
+		MQTTServerName:          "cert.example.com",
+		MQTTDialAddress:         "192.0.2.10:8084",
+		MQTTClientIDPrefix:      "client_",
+		StopAPIURL:              "https://stops.example.com/v1",
+		StopAPIAppVersion:       "1.0.0",
+		StopInfoSyncAt:          4*time.Hour + 30*time.Minute,
+		MaxLiveConnections:      50,
+		BrowserOrigins:          []string{"https://app.example.com", "http://localhost:5173"},
+		PhotonURL:               "https://places.example.com",
+		PhotonUserAgent:         "jalvio-test (ops@example.com)",
+		PlacesRequestsPerMinute: 30,
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)
@@ -114,11 +121,17 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"BROWSER_ORIGINS", "app.example.com"},
 		{"BROWSER_ORIGINS", "ws://app.example.com"},
 		{"BROWSER_ORIGINS", "https://app.example.com/"},
+		{"PHOTON_URL", "places.example.com"},
+		{"PHOTON_USER_AGENT", ""},
+		{"PLACES_REQUESTS_PER_MINUTE", "0"},
+		{"PLACES_REQUESTS_PER_MINUTE", "fast"},
 	}
 	for _, tt := range tests {
 		vars := map[string]string{
 			"STOP_API_URL":         "https://stops.example.com/v1",
 			"STOP_API_APP_VERSION": "1.0.0",
+			"PHOTON_URL":           "https://places.example.com",
+			"PHOTON_USER_AGENT":    "jalvio-test (ops@example.com)",
 			tt.key:                 tt.value,
 		}
 		if _, err := config.Load(env(vars)); err == nil {

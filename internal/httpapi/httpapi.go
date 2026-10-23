@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/lscythe/jalvio-service/internal/fleet"
 	"github.com/lscythe/jalvio-service/internal/geo"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
+	"github.com/lscythe/jalvio-service/internal/places"
 	"github.com/lscythe/jalvio-service/internal/stopinfo"
 )
 
@@ -39,6 +41,11 @@ type Buses interface {
 	Subscribe() *fleet.Subscription
 }
 
+type Places interface {
+	Search(ctx context.Context, text string, near *geo.Point, limit int) ([]places.Place, error)
+	Reverse(ctx context.Context, at geo.Point) (places.Place, error)
+}
+
 type Deps struct {
 	Info     Info
 	Ready    func() bool
@@ -48,7 +55,9 @@ type Deps struct {
 	Buses Buses
 	// StopInfo is nil when the stop facilities sync is disabled.
 	StopInfo StopInfo
-	Live     LiveConfig
+	// Places is nil when place search is disabled.
+	Places Places
+	Live   LiveConfig
 	// Done closes the live streams, which server shutdown leaves open.
 	Done <-chan struct{}
 }
@@ -114,6 +123,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /v1/buses", l.serveBuses)
 	mux.HandleFunc("GET /v1/buses/{fleetNumber}", l.serveBus)
 	mux.HandleFunc("GET /v1/live", newLiveStream(d).serve)
+	p := &placesHandlers{places: d.Places}
+	mux.HandleFunc("GET /v1/places", p.serveSearch)
+	mux.HandleFunc("GET /v1/places/reverse", p.serveReverse)
 	return problemFallback(mux)
 }
 

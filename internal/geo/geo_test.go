@@ -50,6 +50,14 @@ func TestEncodePolyline(t *testing.T) {
 	}
 }
 
+func TestBBoxPad(t *testing.T) {
+	box := geo.BBox{West: 106.5, South: -6.5, East: 107, North: -6}
+	want := geo.BBox{West: 106.25, South: -6.75, East: 107.25, North: -5.75}
+	if got := box.Pad(0.25); got != want {
+		t.Errorf("Pad(0.25) = %+v, want %+v", got, want)
+	}
+}
+
 func TestBBoxContains(t *testing.T) {
 	jakarta := geo.BBox{West: 106.6, South: -6.4, East: 107.0, North: -6.0}
 	tests := []struct {

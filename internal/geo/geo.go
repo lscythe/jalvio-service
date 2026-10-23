@@ -22,6 +22,11 @@ func (b BBox) Contains(p Point) bool {
 	return p.Lat >= b.South && p.Lat <= b.North && p.Lon >= b.West && p.Lon <= b.East
 }
 
+// Pad grows b by degrees on every side.
+func (b BBox) Pad(degrees float64) BBox {
+	return BBox{West: b.West - degrees, South: b.South - degrees, East: b.East + degrees, North: b.North + degrees}
+}
+
 // EncodePolyline uses Google's encoded polyline format at five decimals,
 // which map SDKs decode natively.
 func EncodePolyline(points []Point) string {

@@ -387,8 +387,19 @@ func (p *parser) build(version string) *Catalog {
 		c.stops = append(c.stops, *s)
 	}
 	c.stops, c.stopIndex = sortedBy(c.stops, func(s Stop) string { return s.ID })
+	c.bounds = bounds(c.stops)
 	c.search = newSearchIndex(c.routes, c.stops)
 	return c
+}
+
+// bounds expects at least one stop, which validation guarantees.
+func bounds(stops []Stop) geo.BBox {
+	b := geo.BBox{West: stops[0].Lon, South: stops[0].Lat, East: stops[0].Lon, North: stops[0].Lat}
+	for _, s := range stops[1:] {
+		b.West, b.East = min(b.West, s.Lon), max(b.East, s.Lon)
+		b.South, b.North = min(b.South, s.Lat), max(b.North, s.Lat)
+	}
+	return b
 }
 
 func sortedBy[T any](items []T, key func(T) string) ([]T, map[string]int) {
