@@ -21,6 +21,7 @@ type Catalog struct {
 	serviceIndex map[string]int
 	fares        []Fare
 	fareIndex    map[string]int
+	bounds       geo.BBox
 	search       []searchEntry
 }
 
@@ -133,6 +134,9 @@ func (c *Catalog) Service(id string) (Service, bool) { return lookup(c.services,
 func (c *Catalog) Fares() []Fare { return c.fares }
 
 func (c *Catalog) Fare(id string) (Fare, bool) { return lookup(c.fares, c.fareIndex, id) }
+
+// Bounds is the smallest box holding every stop.
+func (c *Catalog) Bounds() geo.BBox { return c.bounds }
 
 func lookup[T any](items []T, index map[string]int, id string) (T, bool) {
 	i, ok := index[id]

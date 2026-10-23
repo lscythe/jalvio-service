@@ -218,6 +218,84 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
 
+  /v1/places:
+    get:
+      operationId: searchPlaces
+      summary: Destinations (addresses and points of interest) matching a query
+      description: |
+        Results come from an OpenStreetMap geocoder, limited to the area the
+        network serves. Show `attribution` with them. Stops and routes are
+        searched on the device, in the catalog.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: At least 3 characters.
+          schema:
+            type: string
+        - name: near
+          in: query
+          required: false
+          description: "`lat,lng` to rank results by; defaults to the network's centre."
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: 1 to 20; defaults to 10.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+      responses:
+        "200":
+          description: Matching places, best first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Places"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/PlacesBusy"
+        "502":
+          $ref: "#/components/responses/PlacesFailed"
+        "503":
+          $ref: "#/components/responses/PlacesDisabled"
+
+  /v1/places/reverse:
+    get:
+      operationId: reversePlace
+      summary: The address or place at a point
+      parameters:
+        - name: at
+          in: query
+          required: true
+          description: "`lat,lng`"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The nearest place.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReversePlace"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The geocoder knows nothing there.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "429":
+          $ref: "#/components/responses/PlacesBusy"
+        "502":
+          $ref: "#/components/responses/PlacesFailed"
+        "503":
+          $ref: "#/components/responses/PlacesDisabled"
+
 components:
   parameters:
     IfNoneMatch:
@@ -242,6 +320,24 @@ components:
             $ref: "#/components/schemas/Problem"
     BadRequest:
       description: A query parameter is missing or invalid; `detail` says which.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PlacesBusy:
+      description: The service's share of the geocoder is used up for now; retry shortly. Repeated lookups are answered from a cache.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PlacesFailed:
+      description: The geocoder failed or timed out.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PlacesDisabled:
+      description: Place search is not configured on this instance.
       content:
         application/problem+json:
           schema:
@@ -404,6 +500,51 @@ components:
         stale:
           type: boolean
           description: No report for a minute; the position may be out of date.
+
+    Places:
+      type: object
+      additionalProperties: false
+      required: [attribution, places]
+      properties:
+        attribution:
+          $ref: "#/components/schemas/Attribution"
+        places:
+          type: array
+          items:
+            $ref: "#/components/schemas/Place"
+
+    ReversePlace:
+      type: object
+      additionalProperties: false
+      required: [attribution, place]
+      properties:
+        attribution:
+          $ref: "#/components/schemas/Attribution"
+        place:
+          $ref: "#/components/schemas/Place"
+
+    Attribution:
+      type: string
+      description: Credit for the map data, to show with the results.
+
+    Place:
+      type: object
+      additionalProperties: false
+      required: [name, position]
+      properties:
+        id:
+          type: string
+          description: "`osm:` plus the OSM element type letter and ID, e.g. `osm:W123`."
+        name:
+          type: string
+        label:
+          type: string
+          description: Street, district, and city, for a second line.
+        kind:
+          type: string
+          description: The OSM category value, e.g. `mall`, `school`, `bus_stop`.
+        position:
+          $ref: "#/components/schemas/Position"
 
     Status:
       type: object
