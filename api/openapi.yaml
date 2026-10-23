@@ -172,6 +172,52 @@ paths:
         "503":
           $ref: "#/components/responses/NotReady"
 
+  /v1/live:
+    get:
+      operationId: streamLive
+      summary: Live buses pushed over a WebSocket, for the map
+      description: |
+        Upgrade with subprotocol `jalvio.live.v1`. The frames are described
+        in [`live.schema.json`](live.schema.json).
+
+        The server sends `status` first. Each `subscribe` from the client
+        gets a `snapshot`, followed by `update` frames at most once a second.
+        A status frame follows any change of the feed state or the catalog
+        version.
+
+        Close codes: `1008` for a bad or too frequent subscribe, `1009` for a
+        frame over 4 KiB, `1013` when the client reads too slowly, and `1001`
+        when the service shuts down. The server pings every 25 s.
+
+        Browsers must send an allowed `Origin`; the native apps send none.
+      parameters:
+        - name: Sec-WebSocket-Protocol
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "101":
+          description: Switched to the WebSocket protocol.
+        "400":
+          description: Not a WebSocket upgrade, or `jalvio.live.v1` not offered.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "403":
+          description: The `Origin` is not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: No catalog has been loaded yet, or the connection limit is reached.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
 components:
   parameters:
     IfNoneMatch:

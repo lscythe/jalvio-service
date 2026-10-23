@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jalvio.invalid/live.schema.json",
+  "title": "/v1/live frames",
+  "description": "Text frames on the /v1/live WebSocket (subprotocol jalvio.live.v1). The client sends Subscribe; the server sends ServerFrame.",
+  "$defs": {
+    "Subscribe": {
+      "description": "Replaces the previous subscription. At least one of bbox and routes is required; with both, a bus must match both. At most 2 per second, at most 4 KiB.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "anyOf": [{ "required": ["bbox"] }, { "required": ["routes"] }],
+      "properties": {
+        "type": { "const": "subscribe" },
+        "bbox": {
+          "description": "[west, south, east, north], at most one degree on each axis.",
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "routes": {
+          "description": "Route IDs. Unknown IDs match no bus.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        }
+      }
+    },
+    "ServerFrame": {
+      "oneOf": [
+        { "$ref": "#/$defs/Status" },
+        { "$ref": "#/$defs/Snapshot" },
+        { "$ref": "#/$defs/Update" }
+      ]
+    },
+    "Status": {
+      "description": "Sent first, then whenever the feed state or the catalog version changes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "feed"],
+      "properties": {
+        "type": { "const": "status" },
+        "feed": { "enum": ["disabled", "connected", "disconnected"] },
+        "catalogVersion": {
+          "description": "Changes when /v1/catalog does; refresh the stored catalog.",
+          "type": "string"
+        }
+      }
+    },
+    "Snapshot": {
+      "description": "Every bus matching the subscription, ordered by fleet number. Sent after each subscribe.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "buses"],
+      "properties": {
+        "type": { "const": "snapshot" },
+        "buses": { "type": "array", "items": { "$ref": "#/$defs/Bus" } }
+      }
+    },
+    "Update": {
+      "description": "Changes since the last frame, at most once a second and only when something changed.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "buses", "removed"],
+      "properties": {
+        "type": { "const": "update" },
+        "buses": {
+          "description": "Buses that are new to the subscription or changed.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Bus" }
+        },
+        "removed": {
+          "description": "Fleet numbers that stopped reporting or left the subscription.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "Bus": {
+      "description": "The Bus schema of api/openapi.yaml.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fleetNumber", "routeCode", "patternId", "position", "bearing", "observedAt", "stale"],
+      "properties": {
+        "fleetNumber": { "type": "string" },
+        "routeId": { "type": "string" },
+        "routeCode": { "type": "string" },
+        "patternId": { "type": "string" },
+        "headsign": { "type": "string" },
+        "class": { "type": "string" },
+        "vehicleType": { "type": "string" },
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["lat", "lng"],
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "bearing": { "type": "integer" },
+        "prevStopId": { "type": "string" },
+        "nextStopId": { "type": "string" },
+        "atStopId": { "type": "string" },
+        "nextStopDistanceMeters": { "type": "integer", "minimum": 1 },
+        "observedAt": { "type": "string", "format": "date-time" },
+        "stale": { "type": "boolean" }
+      }
+    }
+  }
+}

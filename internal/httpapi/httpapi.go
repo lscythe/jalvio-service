@@ -36,6 +36,7 @@ type Buses interface {
 	Bus(fleetNumber string) (fleet.Bus, bool)
 	InBBox(box geo.BBox, routeCodes []string) []fleet.Bus
 	ArrivalsAt(stopID string) []fleet.Arrival
+	Subscribe() *fleet.Subscription
 }
 
 type Deps struct {
@@ -47,6 +48,9 @@ type Deps struct {
 	Buses Buses
 	// StopInfo is nil when the stop facilities sync is disabled.
 	StopInfo StopInfo
+	Live     LiveConfig
+	// Done closes the live streams, which server shutdown leaves open.
+	Done <-chan struct{}
 }
 
 type statusResponse struct {
@@ -109,6 +113,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /v1/departures", l.serveDepartures)
 	mux.HandleFunc("GET /v1/buses", l.serveBuses)
 	mux.HandleFunc("GET /v1/buses/{fleetNumber}", l.serveBus)
+	mux.HandleFunc("GET /v1/live", newLiveStream(d).serve)
 	return problemFallback(mux)
 }
 
