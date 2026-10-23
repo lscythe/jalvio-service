@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/lscythe/jalvio-service/compare/v0.3.0...v0.4.0) (2026-10-23)
+
+
+### Features
+
+* stream live buses over a WebSocket ([#32](https://github.com/lscythe/jalvio-service/issues/32)) ([b1d4fc3](https://github.com/lscythe/jalvio-service/commit/b1d4fc34961d124bb2a283f1c62e782b9d32bd00))
+
 ## [0.3.0](https://github.com/lscythe/jalvio-service/compare/v0.2.0...v0.3.0) (2026-10-22)
 
 
