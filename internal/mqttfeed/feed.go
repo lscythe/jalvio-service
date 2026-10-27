@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
@@ -27,6 +28,9 @@ const (
 	subscribeTimeout     = 10 * time.Second
 	disconnectQuiesce    = 250 // milliseconds
 )
+
+// DelayWindow is how many recent reports the median delay covers.
+const DelayWindow = 1000
 
 type Config struct {
 	URL           string
@@ -45,6 +49,11 @@ type Sink interface {
 type Status struct {
 	Connected     bool
 	LastMessageAt time.Time
+	// Delay is the median time from a report's own timestamp to its receipt
+	// over the last DelayWindow decoded reports, so a backlog on the broker
+	// shows up as a growing delay. The median ignores buses with wrong clocks.
+	// It is zero until a report is decoded.
+	Delay time.Duration
 	// Reconnects counts reconnect attempts since start.
 	Reconnects int
 	Messages   int64
@@ -62,6 +71,30 @@ type Feed struct {
 
 	mu     sync.Mutex
 	status Status
+	delays recentDelays
+}
+
+type recentDelays struct {
+	samples []time.Duration
+	next    int
+}
+
+func (r *recentDelays) add(d time.Duration) {
+	if len(r.samples) < DelayWindow {
+		r.samples = append(r.samples, d)
+		return
+	}
+	r.samples[r.next] = d
+	r.next = (r.next + 1) % DelayWindow
+}
+
+func (r *recentDelays) median() time.Duration {
+	if len(r.samples) == 0 {
+		return 0
+	}
+	sorted := slices.Clone(r.samples)
+	slices.Sort(sorted)
+	return sorted[len(sorted)/2]
 }
 
 func New(cfg Config, sink Sink, logger *slog.Logger) *Feed {
@@ -73,6 +106,7 @@ func (f *Feed) Status() Status {
 	defer f.mu.Unlock()
 	st := f.status
 	st.Rejected = maps.Clone(f.status.Rejected)
+	st.Delay = f.delays.median()
 	return st
 }
 
@@ -146,6 +180,8 @@ func (f *Feed) handle(_ mqtt.Client, m mqtt.Message) {
 			f.status.Rejected = map[string]int64{}
 		}
 		f.status.Rejected[fleet.RejectReason(err)]++
+	} else {
+		f.delays.add(now.Sub(u.ObservedAt))
 	}
 	f.mu.Unlock()
 	if err == nil {

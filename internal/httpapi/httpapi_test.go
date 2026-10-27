@@ -112,7 +112,8 @@ func TestStatus(t *testing.T) {
 			name:    "catalog loaded and feed connected",
 			catalog: catalog.Status{Version: "abc", UpdatedAt: startedAt, CheckedAt: checked},
 			feed: fakeFeed{mqttfeed.Status{
-				Connected: true, LastMessageAt: lastMessage, Reconnects: 2, Messages: 1500, Malformed: 3,
+				Connected: true, LastMessageAt: lastMessage, Delay: 12360 * time.Millisecond,
+				Reconnects: 2, Messages: 1500, Malformed: 3,
 				Rejected: map[string]int64{"no_position": 2, "payload": 1},
 			}},
 			stops: fakeStopInfo{status: stopinfo.Status{
@@ -121,7 +122,8 @@ func TestStatus(t *testing.T) {
 			}},
 			buses: 1412,
 			want: prefix + `"catalog":{"version":"abc","updatedAt":"2026-10-12T03:00:00Z","checkedAt":"2026-10-12T04:00:00Z"},` +
-				`"feed":{"state":"connected","lastMessageAt":"2026-10-12T05:00:00Z","reconnects":2,"messages":1500,"malformed":3,` +
+				`"feed":{"state":"connected","lastMessageAt":"2026-10-12T05:00:00Z","delaySeconds":12.4,` +
+				`"reconnects":2,"messages":1500,"malformed":3,` +
 				`"rejected":{"no_position":2,"payload":1},"buses":1412},` +
 				`"stopFacilities":{"state":"synced","syncedAt":"2026-10-12T03:00:00Z","checkedAt":"2026-10-12T04:00:00Z",` +
 				`"error":"matched 1 of 272 halte, below 95%","requests":6,"matched":1,"unmatched":271}}`,

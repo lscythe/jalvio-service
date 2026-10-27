@@ -2,6 +2,7 @@ package mqttfeed_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -103,6 +104,51 @@ func TestFeedConnectsAndAppliesMessages(t *testing.T) {
 	st.Rejected["payload"] = 99
 	if got := feed.Status().Rejected["payload"]; got != 1 {
 		t.Errorf("Status shares its rejected map with the feed: got %d after a caller changed it", got)
+	}
+}
+
+func reportObservedAt(at time.Time) []byte {
+	return fmt.Appendf(nil, `{"bus_body_no":"TST-001","route_code":"3F","trip_id":"3F-L01",`+
+		`"latitude":-6.2,"longitude":106.8,"timestamp":%d}`, at.UnixMilli())
+}
+
+func TestFeedReportsMedianDelay(t *testing.T) {
+	b := newBroker(t)
+	feed, _, _ := startFeed(t, b, fleet.New())
+	waitSubscribed(t, b)
+	if d := feed.Status().Delay; d != 0 {
+		t.Errorf("Delay before any report = %v, want 0", d)
+	}
+
+	now := time.Now()
+	b.publish(busTopic, reportObservedAt(now.Add(-2*time.Second)))
+	b.publish(busTopic, reportObservedAt(now.Add(-4*time.Second)))
+	b.publish(busTopic, reportObservedAt(now.Add(-time.Hour)))
+	b.publish(busTopic, []byte("not json"))
+	b.publish(busTopic, []byte(noFixPayload))
+
+	waitFor(t, "all messages", func() bool { return feed.Status().Messages == 5 })
+	if d := feed.Status().Delay; d < 4*time.Second || d > 5*time.Second {
+		t.Errorf("Delay = %v, want the median of the decoded reports, about 4s", d)
+	}
+}
+
+func TestFeedDelayFollowsRecentReports(t *testing.T) {
+	b := newBroker(t)
+	feed, _, _ := startFeed(t, b, fleet.New())
+	waitSubscribed(t, b)
+
+	now := time.Now()
+	for range mqttfeed.DelayWindow {
+		b.publish(busTopic, reportObservedAt(now.Add(-time.Minute)))
+	}
+	for range mqttfeed.DelayWindow/2 + 1 {
+		b.publish(busTopic, reportObservedAt(now.Add(-2*time.Second)))
+	}
+
+	waitFor(t, "all messages", func() bool { return feed.Status().Messages == int64(mqttfeed.DelayWindow*3/2+1) })
+	if d := feed.Status().Delay; d < 2*time.Second || d > 10*time.Second {
+		t.Errorf("Delay = %v, want about 2s once recent reports outnumber older ones in the window", d)
 	}
 }
 

@@ -583,6 +583,12 @@ components:
             lastMessageAt:
               type: string
               format: date-time
+            delaySeconds:
+              type: number
+              description: >-
+                Median seconds from a bus report's own timestamp to its receipt, over the
+                last 1000 reports. It grows when the broker falls behind sending to this
+                instance. Absent until a report arrives.
             reconnects:
               type: integer
             messages:
