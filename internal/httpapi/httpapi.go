@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"time"
 
@@ -80,6 +81,7 @@ type catalogStatus struct {
 type feedStatus struct {
 	State         string           `json:"state"`
 	LastMessageAt time.Time        `json:"lastMessageAt,omitzero"`
+	DelaySeconds  *float64         `json:"delaySeconds,omitempty"`
 	Reconnects    int              `json:"reconnects"`
 	Messages      int64            `json:"messages"`
 	Malformed     int64            `json:"malformed"`
@@ -151,12 +153,21 @@ func newFeedStatus(feed Feed, buses int) feedStatus {
 	return feedStatus{
 		State:         connectionState(st),
 		LastMessageAt: st.LastMessageAt,
+		DelaySeconds:  delaySeconds(st.Delay),
 		Reconnects:    st.Reconnects,
 		Messages:      st.Messages,
 		Malformed:     st.Malformed,
 		Rejected:      st.Rejected,
 		Buses:         buses,
 	}
+}
+
+func delaySeconds(d time.Duration) *float64 {
+	if d == 0 {
+		return nil
+	}
+	s := math.Round(d.Seconds()*10) / 10
+	return &s
 }
 
 func newStopsStatus(stops StopInfo) stopsStatus {
