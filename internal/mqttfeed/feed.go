@@ -21,7 +21,6 @@ import (
 )
 
 const (
-	topic                = "/mobile_armada/#"
 	connectTimeout       = 15 * time.Second
 	connectRetryInterval = 10 * time.Second
 	maxReconnectInterval = 60 * time.Second
@@ -154,7 +153,7 @@ func (f *Feed) Run(ctx context.Context) {
 func (f *Feed) onConnect(c mqtt.Client) {
 	f.setConnected(true)
 	f.logger.Info("mqtt connected")
-	token := c.Subscribe(topic, 0, f.handle)
+	token := c.Subscribe(WholeFleet, 0, f.handle)
 	if !token.WaitTimeout(subscribeTimeout) {
 		f.logger.Warn("mqtt subscribe timed out")
 		return
