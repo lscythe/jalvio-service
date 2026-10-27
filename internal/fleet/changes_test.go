@@ -60,7 +60,8 @@ func TestFlushSendsChangedBuses(t *testing.T) {
 func TestFlushReportsStaleAndRemovedBuses(t *testing.T) {
 	f := fleet.New()
 	f.Apply(update("A-1", "1", monas, t0, nil), t0)
-	f.Apply(update("B-2", "1", monas, t0.Add(fleet.RemoveAfter), nil), t0.Add(fleet.RemoveAfter-fleet.StaleAfter))
+	seen := t0.Add(fleet.RemoveAfter - fleet.StaleAfter)
+	f.Apply(update("B-2", "1", monas, seen, nil), seen)
 	sub := f.Subscribe()
 	defer sub.Close()
 
@@ -83,7 +84,8 @@ func TestSlowSubscriberIsDropped(t *testing.T) {
 	defer fast.Close()
 
 	for i := range fleet.SubscriberBuffer + 1 {
-		f.Apply(update("A-1", "1", monas, t0.Add(time.Duration(i)*time.Second), nil), t0)
+		at := t0.Add(time.Duration(i) * time.Second)
+		f.Apply(update("A-1", "1", monas, at, nil), at)
 		f.Flush()
 		receive(t, fast)
 	}

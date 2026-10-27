@@ -104,7 +104,11 @@
         "nextStopId": { "type": "string" },
         "atStopId": { "type": "string" },
         "nextStopDistanceMeters": { "type": "integer", "minimum": 1 },
-        "observedAt": { "type": "string", "format": "date-time" },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the bus reported, never later than when the server received it."
+        },
         "stale": { "type": "boolean" }
       }
     }

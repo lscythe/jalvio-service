@@ -67,6 +67,28 @@ func TestApplyKeepsNewestReport(t *testing.T) {
 	}
 }
 
+func TestApplyClampsFutureReportsToReceiveTime(t *testing.T) {
+	f := fleet.New()
+	ahead := time.Hour
+
+	f.Apply(update("A-1", "1", monas, t0.Add(ahead), nil), t0)
+	if bus, _ := f.Bus("A-1"); !bus.ObservedAt.Equal(t0) {
+		t.Errorf("ObservedAt = %v, want the receive time %v", bus.ObservedAt, t0)
+	}
+
+	if !f.Apply(update("A-1", "1", blokM, t0.Add(ahead+2*time.Second), nil), t0.Add(2*time.Second)) {
+		t.Error("next report from the same fast clock rejected")
+	}
+
+	corrected := t0.Add(5 * time.Second)
+	if !f.Apply(update("A-1", "1", monas, corrected, nil), corrected.Add(time.Second)) {
+		t.Fatal("report after the clock was corrected rejected")
+	}
+	if bus, _ := f.Bus("A-1"); !bus.ObservedAt.Equal(corrected) || bus.Position != monas {
+		t.Errorf("bus = %+v, want the corrected report observed at %v", bus, corrected)
+	}
+}
+
 func TestExpire(t *testing.T) {
 	f := fleet.New()
 	f.Apply(update("A-1", "1", monas, t0, nil), t0)
