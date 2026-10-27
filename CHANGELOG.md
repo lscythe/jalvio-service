@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/lscythe/jalvio-service/compare/v0.4.0...v0.4.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **fleet:** take future reports as observed on receipt ([#37](https://github.com/lscythe/jalvio-service/issues/37)) ([ad8f4c7](https://github.com/lscythe/jalvio-service/commit/ad8f4c75bee14508fbab192391f1e2b182951adb))
+
 ## [0.4.0](https://github.com/lscythe/jalvio-service/compare/v0.3.0...v0.4.0) (2026-10-27)
 
 
