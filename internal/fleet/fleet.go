@@ -52,7 +52,12 @@ func New() *Fleet {
 }
 
 // Apply stores u unless an equal or newer report for the bus is already held.
+// A report from the future is taken as observed on receipt, so a bus with a
+// fast clock is not frozen once its clock is corrected.
 func (f *Fleet) Apply(u Update, now time.Time) bool {
+	if u.ObservedAt.After(now) {
+		u.ObservedAt = now
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if cur, ok := f.buses[u.Plate]; ok && !u.ObservedAt.After(cur.ObservedAt) {
