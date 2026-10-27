@@ -30,6 +30,10 @@ type Config struct {
 	// BrowserOrigins may open the live stream; requests without an Origin
 	// header, such as the native apps', are always allowed.
 	BrowserOrigins []string
+	// PhotonURL is empty when place search is disabled.
+	PhotonURL               string
+	PhotonUserAgent         string
+	PlacesRequestsPerMinute int
 }
 
 // ListenAddress returns JALVIO_LISTEN or its default, without validating it.
@@ -97,6 +101,23 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		cfg.BrowserOrigins = append(cfg.BrowserOrigins, origin)
 	}
+
+	cfg.PhotonURL = getenv("PHOTON_URL")
+	cfg.PhotonUserAgent = getenv("PHOTON_USER_AGENT")
+	if cfg.PhotonURL != "" {
+		if u, err := url.Parse(cfg.PhotonURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return Config{}, fmt.Errorf("PHOTON_URL: %q is not an http(s) URL", cfg.PhotonURL)
+		}
+		// Public Photon instances ask for a User-Agent that identifies the operator.
+		if cfg.PhotonUserAgent == "" {
+			return Config{}, errors.New("PHOTON_USER_AGENT: required when PHOTON_URL is set")
+		}
+	}
+	perMinute, err := strconv.Atoi(valueOr(getenv("PLACES_REQUESTS_PER_MINUTE"), "60"))
+	if err != nil || perMinute <= 0 {
+		return Config{}, fmt.Errorf("PLACES_REQUESTS_PER_MINUTE: %q is not a positive integer", getenv("PLACES_REQUESTS_PER_MINUTE"))
+	}
+	cfg.PlacesRequestsPerMinute = perMinute
 	return cfg, nil
 }
 

@@ -14,21 +14,24 @@ mise install
 go run ./cmd/jalvio
 ```
 
-| Variable                | Default   | Purpose                                                         |
-| ----------------------- | --------- | --------------------------------------------------------------- |
-| `GTFS_URL`              | required  | Static GTFS feed (zip) to load and refresh                      |
-| `GTFS_REFRESH`          | `24h`     | How often the feed is checked                                   |
-| `MQTT_URL`              | empty     | Live bus feed broker (`ws://` or `wss://`); empty turns it off  |
-| `MQTT_TLS_SERVER_NAME`  | URL host  | Name the broker certificate is verified against                 |
-| `MQTT_DIAL_ADDRESS`     | empty     | `host:port` to dial instead of the URL's host                   |
-| `MQTT_CLIENT_ID_PREFIX` | `jalvio-` | Client ID prefix; a stored ID without it is replaced            |
-| `STOP_API_URL`          | empty     | Stop API base URL for the facilities sync; empty turns it off   |
-| `STOP_API_APP_VERSION`  | empty     | App version the stop API expects; required with `STOP_API_URL`  |
-| `STOPINFO_SYNC_AT`      | `03:00`   | Daily facilities sync time (`HH:MM`) in the local zone (`TZ`)   |
-| `MAX_LIVE_CONNECTIONS`  | `2000`    | Open `/v1/live` connections allowed at once                     |
-| `BROWSER_ORIGINS`       | empty     | Space-separated origins allowed on `/v1/live`; empty: apps only |
-| `JALVIO_LISTEN`         | `:8080`   | HTTP listen address                                             |
-| `JALVIO_DATA_DIR`       | `./data`  | Stored feed, client and device IDs, and snapshots               |
+| Variable                     | Default   | Purpose                                                         |
+| ---------------------------- | --------- | --------------------------------------------------------------- |
+| `GTFS_URL`                   | required  | Static GTFS feed (zip) to load and refresh                      |
+| `GTFS_REFRESH`               | `24h`     | How often the feed is checked                                   |
+| `MQTT_URL`                   | empty     | Live bus feed broker (`ws://` or `wss://`); empty turns it off  |
+| `MQTT_TLS_SERVER_NAME`       | URL host  | Name the broker certificate is verified against                 |
+| `MQTT_DIAL_ADDRESS`          | empty     | `host:port` to dial instead of the URL's host                   |
+| `MQTT_CLIENT_ID_PREFIX`      | `jalvio-` | Client ID prefix; a stored ID without it is replaced            |
+| `STOP_API_URL`               | empty     | Stop API base URL for the facilities sync; empty turns it off   |
+| `STOP_API_APP_VERSION`       | empty     | App version the stop API expects; required with `STOP_API_URL`  |
+| `STOPINFO_SYNC_AT`           | `03:00`   | Daily facilities sync time (`HH:MM`) in the local zone (`TZ`)   |
+| `PHOTON_URL`                 | empty     | Photon geocoder base URL for place search; empty turns it off   |
+| `PHOTON_USER_AGENT`          | empty     | User-Agent naming the operator; required with `PHOTON_URL`      |
+| `PLACES_REQUESTS_PER_MINUTE` | `60`      | Geocoder calls allowed per minute; cached lookups are free      |
+| `MAX_LIVE_CONNECTIONS`       | `2000`    | Open `/v1/live` connections allowed at once                     |
+| `BROWSER_ORIGINS`            | empty     | Space-separated origins allowed on `/v1/live`; empty: apps only |
+| `JALVIO_LISTEN`              | `:8080`   | HTTP listen address                                             |
+| `JALVIO_DATA_DIR`            | `./data`  | Stored feed, client and device IDs, and snapshots               |
 
 Upstream endpoints are deployment configuration and are not part of this repository.
 
@@ -55,6 +58,8 @@ The image is distroless, runs as a non-root user, and keeps its state in the `/d
 | `/v1/buses`          | Live buses in a bounding box, on routes, or both                                           |
 | `/v1/buses/{number}` | One live bus and the stops it is expected at                                               |
 | `/v1/live`           | WebSocket for the map: a snapshot per subscribe (bounding box, routes), then 1 s updates   |
+| `/v1/places`         | Destinations matching a query, in the area the network serves, with OSM attribution        |
+| `/v1/places/reverse` | The address or place at a point                                                            |
 
 [`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. [`api/live.schema.json`](api/live.schema.json) does the same for `/v1/live` frames. The catalog documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
 

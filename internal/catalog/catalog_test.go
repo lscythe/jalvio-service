@@ -167,6 +167,13 @@ func TestRouteByCode(t *testing.T) {
 	}
 }
 
+func TestBoundsCoverEveryStop(t *testing.T) {
+	want := geo.BBox{West: 106.801, South: -6.257, East: 106.853, North: -6.137}
+	if got := parseFixture(t).Bounds(); got != want {
+		t.Errorf("Bounds = %+v, want %+v", got, want)
+	}
+}
+
 func TestCatalogListsAreOrderedByID(t *testing.T) {
 	c := parseFixture(t)
 
