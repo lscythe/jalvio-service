@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,55 @@ func liveHandler(t *testing.T) http.Handler {
 	d.Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
 	d.Buses = liveFleet()
 	return httpapi.New(d)
+}
+
+func demandHandler(t *testing.T) (http.Handler, *recordingDemand) {
+	t.Helper()
+	demand := newRecordingDemand()
+	d := deps(true)
+	d.Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
+	d.Buses = liveFleet()
+	d.Demand = demand
+	return httpapi.New(d), demand
+}
+
+func checkTouches(t *testing.T, demand *recordingDemand, want ...mqttfeed.Interest) {
+	t.Helper()
+	if got := demand.touches(); !reflect.DeepEqual(got, want) {
+		t.Errorf("touched %+v, want %+v", got, want)
+	}
+}
+
+func TestBusesTouchesTheArea(t *testing.T) {
+	h, demand := demandHandler(t)
+	get(t, h, "/v1/buses?bbox=106.8,-6.2,106.9,-6.1", nil)
+	checkTouches(t, demand, mqttfeed.Interest{Areas: []geo.BBox{{West: 106.8, South: -6.2, East: 106.9, North: -6.1}}})
+}
+
+func TestBusesTouchesRouteCodes(t *testing.T) {
+	h, demand := demandHandler(t)
+	get(t, h, "/v1/buses?routes=JAK.18", nil)
+	get(t, h, "/v1/buses?bbox=106.8,-6.2,106.9,-6.1&routes=1", nil)
+	get(t, h, "/v1/buses?routes=NOPE", nil)
+	checkTouches(t, demand,
+		mqttfeed.Interest{RouteCodes: []string{"JAK.18"}},
+		mqttfeed.Interest{RouteCodes: []string{"1"}},
+	)
+}
+
+func TestDeparturesTouchesRoutesServingStops(t *testing.T) {
+	h, demand := demandHandler(t)
+	get(t, h, "/v1/departures?stops=B00003P,G00002,NOPE", nil)
+	get(t, h, "/v1/departures?stops=NOPE", nil)
+	checkTouches(t, demand, mqttfeed.Interest{RouteCodes: []string{"1", "JAK.18"}})
+}
+
+func TestBusDetailTouchesUnknownFleetNumber(t *testing.T) {
+	h, demand := demandHandler(t)
+	if rec := get(t, h, "/v1/buses/NEW-1", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	checkTouches(t, demand, mqttfeed.Interest{FleetNumbers: []string{"NEW-1"}})
 }
 
 func TestDepartures(t *testing.T) {

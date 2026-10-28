@@ -42,6 +42,14 @@ type Buses interface {
 	Subscribe() *fleet.Subscription
 }
 
+// Demand tells the live feed what clients watch, since it only receives
+// buses someone asked for.
+type Demand interface {
+	Hold(key string, i mqttfeed.Interest)
+	Release(key string)
+	Touch(i mqttfeed.Interest)
+}
+
 type Places interface {
 	Search(ctx context.Context, text string, near *geo.Point, limit int) ([]places.Place, error)
 	Reverse(ctx context.Context, at geo.Point) (places.Place, error)
@@ -54,6 +62,8 @@ type Deps struct {
 	// Feed is nil when the live feed is disabled.
 	Feed  Feed
 	Buses Buses
+	// Demand is nil when the live feed is disabled.
+	Demand Demand
 	// StopInfo is nil when the stop facilities sync is disabled.
 	StopInfo StopInfo
 	// Places is nil when place search is disabled.
@@ -122,7 +132,7 @@ func New(d Deps) http.Handler {
 	docs := &catalogDocuments{catalogs: d.Catalogs, stopInfo: d.StopInfo}
 	mux.HandleFunc("GET /v1/catalog", docs.serveCatalog)
 	mux.HandleFunc("GET /v1/catalog/shapes", docs.serveShapes)
-	l := &live{catalogs: d.Catalogs, feed: d.Feed, buses: d.Buses}
+	l := &live{catalogs: d.Catalogs, feed: d.Feed, buses: d.Buses, demand: d.Demand}
 	mux.HandleFunc("GET /v1/departures", l.serveDepartures)
 	mux.HandleFunc("GET /v1/buses", l.serveBuses)
 	mux.HandleFunc("GET /v1/buses/{fleetNumber}", l.serveBus)

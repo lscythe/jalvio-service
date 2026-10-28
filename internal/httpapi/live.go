@@ -12,6 +12,7 @@ import (
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/fleet"
 	"github.com/lscythe/jalvio-service/internal/geo"
+	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 )
 
 const (
@@ -26,6 +27,13 @@ type live struct {
 	catalogs Catalogs
 	feed     Feed
 	buses    Buses
+	demand   Demand
+}
+
+func (l *live) touch(i mqttfeed.Interest) {
+	if l.demand != nil {
+		l.demand.Touch(i)
+	}
 }
 
 type departuresResponse struct {
@@ -98,11 +106,38 @@ func (l *live) serveDepartures(w http.ResponseWriter, r *http.Request) {
 		writeBadRequest(w, "stops must list 1 to 10 comma-separated stop IDs")
 		return
 	}
+	if codes := routesServing(c, ids); len(codes) > 0 {
+		l.touch(mqttfeed.Interest{RouteCodes: codes})
+	}
 	resp := departuresResponse{Feed: feedState(l.feed), Stops: make([]stopDepartures, 0, len(ids))}
 	for _, id := range ids {
 		resp.Stops = append(resp.Stops, stopDepartures{StopID: id, Departures: l.departuresAt(c, id)})
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// routesServing lists the codes of the routes serving the stops, sorted. A
+// platform counts its station's routes, matching departuresAt.
+func routesServing(c *catalog.Catalog, stopIDs []string) []string {
+	var codes []string
+	for _, id := range stopIDs {
+		stop, ok := c.Stop(id)
+		if !ok {
+			continue
+		}
+		if stop.Kind == catalog.Platform {
+			if stop, ok = c.Stop(stop.ParentID); !ok {
+				continue
+			}
+		}
+		for _, routeID := range stop.RouteIDs {
+			if route, ok := c.Route(routeID); ok && !slices.Contains(codes, route.Code) {
+				codes = append(codes, route.Code)
+			}
+		}
+	}
+	slices.Sort(codes)
+	return codes
 }
 
 // departuresAt groups the soonest buses by route and headsign. The feed
@@ -170,6 +205,9 @@ func (l *live) serveBuses(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, resp)
 			return
 		}
+		l.touch(mqttfeed.Interest{RouteCodes: codes})
+	} else {
+		l.touch(mqttfeed.Interest{Areas: []geo.BBox{box}})
 	}
 	for _, b := range l.buses.InBBox(box, codes) {
 		resp.Buses = append(resp.Buses, newBusItem(c, b))
@@ -183,7 +221,9 @@ func (l *live) serveBus(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable)
 		return
 	}
-	b, ok := l.buses.Bus(r.PathValue("fleetNumber"))
+	fleetNumber := r.PathValue("fleetNumber")
+	l.touch(mqttfeed.Interest{FleetNumbers: []string{fleetNumber}})
+	b, ok := l.buses.Bus(fleetNumber)
 	if !ok {
 		writeProblem(w, http.StatusNotFound)
 		return

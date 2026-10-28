@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +26,43 @@ type fakeCatalogs struct {
 
 func (f fakeCatalogs) Status() catalog.Status    { return f.status }
 func (f fakeCatalogs) Current() *catalog.Catalog { return f.current }
+
+// recordingDemand records what handlers ask the feed to watch.
+type recordingDemand struct {
+	mu       sync.Mutex
+	touched  []mqttfeed.Interest
+	holds    map[string]mqttfeed.Interest
+	released []string
+}
+
+func newRecordingDemand() *recordingDemand {
+	return &recordingDemand{holds: map[string]mqttfeed.Interest{}}
+}
+
+func (d *recordingDemand) Hold(key string, i mqttfeed.Interest) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.holds[key] = i
+}
+
+func (d *recordingDemand) Release(key string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.holds, key)
+	d.released = append(d.released, key)
+}
+
+func (d *recordingDemand) Touch(i mqttfeed.Interest) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.touched = append(d.touched, i)
+}
+
+func (d *recordingDemand) touches() []mqttfeed.Interest {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.touched)
+}
 
 type fakeFeed struct{ status mqttfeed.Status }
 
