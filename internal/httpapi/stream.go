@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/fleet"
 	"github.com/lscythe/jalvio-service/internal/geo"
+	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 )
 
 const (
@@ -38,14 +40,16 @@ type liveStream struct {
 	catalogs Catalogs
 	feed     Feed
 	buses    Buses
+	demand   Demand
 	limits   LiveConfig
 	done     <-chan struct{}
 	open     atomic.Int64
+	sessions atomic.Int64
 	upgrader websocket.Upgrader
 }
 
 func newLiveStream(d Deps) *liveStream {
-	s := &liveStream{catalogs: d.Catalogs, feed: d.Feed, buses: d.Buses, limits: d.Live, done: d.Done}
+	s := &liveStream{catalogs: d.Catalogs, feed: d.Feed, buses: d.Buses, demand: d.Demand, limits: d.Live, done: d.Done}
 	s.upgrader = websocket.Upgrader{
 		Subprotocols: []string{liveSubprotocol},
 		CheckOrigin:  s.allowOrigin,
@@ -96,6 +100,15 @@ func (f liveFilter) matches(b fleet.Bus) bool {
 	return f.box.Contains(b.Position) && (!f.byRoute || slices.Contains(f.codes, b.RouteCode))
 }
 
+// interest names routes alone when the filter has them: the broker cannot
+// select routes inside an area, and routes are the smaller set.
+func (f liveFilter) interest() mqttfeed.Interest {
+	if f.byRoute {
+		return mqttfeed.Interest{RouteCodes: f.codes}
+	}
+	return mqttfeed.Interest{Areas: []geo.BBox{f.box}}
+}
+
 func (s *liveStream) serve(w http.ResponseWriter, r *http.Request) {
 	if s.catalogs.Current() == nil {
 		writeProblem(w, http.StatusServiceUnavailable)
@@ -126,6 +139,14 @@ func (s *liveStream) serve(w http.ResponseWriter, r *http.Request) {
 	defer close(quit)
 	go s.readFilters(conn, filters, quit)
 
+	key := fmt.Sprintf("live-%d", s.sessions.Add(1))
+	holding := false
+	defer func() {
+		if holding {
+			s.demand.Release(key)
+		}
+	}()
+
 	sess := &liveSession{conn: conn}
 	if sess.sendStatus(s.status()) != nil {
 		return
@@ -143,6 +164,10 @@ func (s *liveStream) serve(w http.ResponseWriter, r *http.Request) {
 		case f, ok := <-filters:
 			if !ok {
 				return
+			}
+			if s.demand != nil {
+				s.demand.Hold(key, f.interest())
+				holding = true
 			}
 			err = sess.sendSnapshot(s.catalogs.Current(), f, s.buses.InBBox(f.box, nil))
 		case batch, ok := <-sub.Batches():

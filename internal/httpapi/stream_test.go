@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -189,6 +190,71 @@ func moveBus(f *fleet.Fleet, fleetNumber string, at time.Time, lat, lng float64)
 	u.Position = geo.Point{Lat: lat, Lon: lng}
 	u.ObservedAt = at
 	f.Apply(u, at)
+}
+
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func onlyHold(t *testing.T, demand *recordingDemand) (string, mqttfeed.Interest) {
+	t.Helper()
+	held := demand.held()
+	if len(held) != 1 {
+		t.Fatalf("holds = %+v, want one", held)
+	}
+	for key, i := range held {
+		return key, i
+	}
+	return "", mqttfeed.Interest{}
+}
+
+func TestLiveHoldsAndReleases(t *testing.T) {
+	d := liveDeps(t, quietFleet())
+	demand := newRecordingDemand()
+	d.Demand = demand
+	conn := mustDialLive(t, startLive(t, d))
+	readFrame(t, conn)
+
+	subscribe(t, conn, `{"type":"subscribe","bbox":[106.82,-6.2,106.83,-6.18]}`)
+	readBuses(t, conn, "snapshot")
+	key, i := onlyHold(t, demand)
+	if want := (mqttfeed.Interest{Areas: []geo.BBox{{West: 106.82, South: -6.2, East: 106.83, North: -6.18}}}); !reflect.DeepEqual(i, want) {
+		t.Errorf("hold = %+v, want %+v", i, want)
+	}
+
+	time.Sleep(time.Second) // stay under the subscribe rate limit
+	subscribe(t, conn, `{"type":"subscribe","bbox":[106.82,-6.2,106.83,-6.18],"routes":["JAK.18"]}`)
+	readBuses(t, conn, "snapshot")
+	replacedKey, replaced := onlyHold(t, demand)
+	if want := (mqttfeed.Interest{RouteCodes: []string{"JAK.18"}}); replacedKey != key || !reflect.DeepEqual(replaced, want) {
+		t.Errorf("hold %q = %+v, want %q to hold only %+v", replacedKey, replaced, key, want)
+	}
+
+	_ = conn.Close()
+	eventually(t, "the session's release", func() bool { return slices.Equal(demand.releases(), []string{key}) })
+}
+
+func TestLiveSessionsUseDistinctKeys(t *testing.T) {
+	d := liveDeps(t, quietFleet())
+	demand := newRecordingDemand()
+	d.Demand = demand
+	url := startLive(t, d)
+	for range 2 {
+		conn := mustDialLive(t, url)
+		readFrame(t, conn)
+		subscribe(t, conn, `{"type":"subscribe","routes":["1"]}`)
+		readBuses(t, conn, "snapshot")
+	}
+	if held := demand.held(); len(held) != 2 {
+		t.Errorf("holds = %+v, want one per session", held)
+	}
 }
 
 func TestLiveStreamsSubscribedBuses(t *testing.T) {

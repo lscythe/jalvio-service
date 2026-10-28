@@ -2,9 +2,12 @@ package httpapi_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +27,55 @@ type fakeCatalogs struct {
 
 func (f fakeCatalogs) Status() catalog.Status    { return f.status }
 func (f fakeCatalogs) Current() *catalog.Catalog { return f.current }
+
+// recordingDemand records what handlers ask the feed to watch.
+type recordingDemand struct {
+	mu       sync.Mutex
+	touched  []mqttfeed.Interest
+	holds    map[string]mqttfeed.Interest
+	released []string
+}
+
+func newRecordingDemand() *recordingDemand {
+	return &recordingDemand{holds: map[string]mqttfeed.Interest{}}
+}
+
+func (d *recordingDemand) Hold(key string, i mqttfeed.Interest) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.holds[key] = i
+}
+
+func (d *recordingDemand) Release(key string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.holds, key)
+	d.released = append(d.released, key)
+}
+
+func (d *recordingDemand) Touch(i mqttfeed.Interest) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.touched = append(d.touched, i)
+}
+
+func (d *recordingDemand) touches() []mqttfeed.Interest {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.touched)
+}
+
+func (d *recordingDemand) held() map[string]mqttfeed.Interest {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return maps.Clone(d.holds)
+}
+
+func (d *recordingDemand) releases() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.released)
+}
 
 type fakeFeed struct{ status mqttfeed.Status }
 
@@ -105,7 +157,7 @@ func TestStatus(t *testing.T) {
 			name:    "starting with the feed disabled",
 			catalog: catalog.Status{Error: "fetch feed: timeout"},
 			want: prefix + `"catalog":{"error":"fetch feed: timeout"},` +
-				`"feed":{"state":"disabled","reconnects":0,"messages":0,"malformed":0,"buses":0},` +
+				`"feed":{"state":"disabled","reconnects":0,"messages":0,"malformed":0,"buses":0,"filters":0,"wholeFleet":false},` +
 				`"stopFacilities":{"state":"disabled","requests":0,"matched":0,"unmatched":0}}`,
 		},
 		{
@@ -115,6 +167,7 @@ func TestStatus(t *testing.T) {
 				Connected: true, LastMessageAt: lastMessage, Delay: 12360 * time.Millisecond,
 				Reconnects: 2, Messages: 1500, Malformed: 3,
 				Rejected: map[string]int64{"no_position": 2, "payload": 1},
+				Filters:  42, WholeFleet: true,
 			}},
 			stops: fakeStopInfo{status: stopinfo.Status{
 				SyncedAt: startedAt, CheckedAt: checked, Error: "matched 1 of 272 halte, below 95%",
@@ -124,7 +177,7 @@ func TestStatus(t *testing.T) {
 			want: prefix + `"catalog":{"version":"abc","updatedAt":"2026-10-12T03:00:00Z","checkedAt":"2026-10-12T04:00:00Z"},` +
 				`"feed":{"state":"connected","lastMessageAt":"2026-10-12T05:00:00Z","delaySeconds":12.4,` +
 				`"reconnects":2,"messages":1500,"malformed":3,` +
-				`"rejected":{"no_position":2,"payload":1},"buses":1412},` +
+				`"rejected":{"no_position":2,"payload":1},"buses":1412,"filters":42,"wholeFleet":true},` +
 				`"stopFacilities":{"state":"synced","syncedAt":"2026-10-12T03:00:00Z","checkedAt":"2026-10-12T04:00:00Z",` +
 				`"error":"matched 1 of 272 halte, below 95%","requests":6,"matched":1,"unmatched":271}}`,
 		},
@@ -133,7 +186,7 @@ func TestStatus(t *testing.T) {
 			feed:  fakeFeed{mqttfeed.Status{Reconnects: 1}},
 			stops: fakeStopInfo{status: stopinfo.Status{CheckedAt: checked, Error: "catalog not loaded"}},
 			want: prefix + `"catalog":{},` +
-				`"feed":{"state":"disconnected","reconnects":1,"messages":0,"malformed":0,"buses":0},` +
+				`"feed":{"state":"disconnected","reconnects":1,"messages":0,"malformed":0,"buses":0,"filters":0,"wholeFleet":false},` +
 				`"stopFacilities":{"state":"pending","checkedAt":"2026-10-12T04:00:00Z","error":"catalog not loaded",` +
 				`"requests":0,"matched":0,"unmatched":0}}`,
 		},

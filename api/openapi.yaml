@@ -98,6 +98,10 @@ paths:
         headsign, soonest first, at most three per group. A platform reports
         the departures of its station. Scheduled times come from the catalog
         on the device, not from this endpoint.
+
+        Live data covers what clients are watching. A newly watched area,
+        route, stop or bus starts empty and fills within about 10 s as buses
+        report.
       parameters:
         - name: stops
           in: query
@@ -121,6 +125,10 @@ paths:
     get:
       operationId: listBuses
       summary: Live buses in an area, on routes, or both
+      description: |
+        Live data covers what clients are watching. A newly watched area,
+        route, stop or bus starts empty and fills within about 10 s as buses
+        report.
       parameters:
         - name: bbox
           in: query
@@ -150,6 +158,10 @@ paths:
     get:
       operationId: getBus
       summary: One live bus and the stops it is expected at
+      description: |
+        Live data covers what clients are watching. A newly watched area,
+        route, stop or bus starts empty and fills within about 10 s as buses
+        report, so the first request for a bus can answer 404.
       parameters:
         - name: fleetNumber
           in: path
@@ -184,6 +196,10 @@ paths:
         gets a `snapshot`, followed by `update` frames at most once a second.
         A status frame follows any change of the feed state or the catalog
         version.
+
+        Live data covers what clients are watching. A newly watched area,
+        route, stop or bus starts empty and fills within about 10 s as buses
+        report, through `update` frames.
 
         Close codes: `1008` for a bad or too frequent subscribe, `1009` for a
         frame over 4 KiB, `1013` when the client reads too slowly, and `1001`
@@ -575,7 +591,7 @@ components:
         feed:
           type: object
           additionalProperties: false
-          required: [state, reconnects, messages, malformed, buses]
+          required: [state, reconnects, messages, malformed, buses, filters, wholeFleet]
           properties:
             state:
               type: string
@@ -604,6 +620,12 @@ components:
                 format: int64
             buses:
               type: integer
+            filters:
+              type: integer
+              description: Broker filters currently subscribed for what clients watch.
+            wholeFleet:
+              type: boolean
+              description: The whole fleet is subscribed because clients watch more than 1500 broker filters (map tiles, routes and buses together).
         stopFacilities:
           type: object
           additionalProperties: false

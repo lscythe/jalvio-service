@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lscythe/jalvio-service/internal/fleet"
+	"github.com/lscythe/jalvio-service/internal/geo"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 )
 
@@ -26,7 +29,7 @@ const (
 // startFeed runs a feed against b. The broker URL names an unresolvable host
 // so the connection only works through the dial address override, and the
 // TLS server name matches the test certificate rather than that host.
-func startFeed(t *testing.T, b *broker, sink *fleet.Fleet) (*mqttfeed.Feed, context.CancelFunc, <-chan struct{}) {
+func startFeed(t *testing.T, b *broker, sink *fleet.Fleet, demand *mqttfeed.Demand) (*mqttfeed.Feed, context.CancelFunc, <-chan struct{}) {
 	t.Helper()
 	feed := mqttfeed.New(mqttfeed.Config{
 		URL:           "wss://broker.invalid:8084/mqtt",
@@ -34,7 +37,7 @@ func startFeed(t *testing.T, b *broker, sink *fleet.Fleet) (*mqttfeed.Feed, cont
 		DialAddress:   b.addr(),
 		ClientID:      "jalvio-test",
 		RootCAs:       b.rootCAs(),
-	}, sink, slog.New(slog.DiscardHandler))
+	}, sink, demand, slog.New(slog.DiscardHandler))
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
@@ -46,6 +49,13 @@ func startFeed(t *testing.T, b *broker, sink *fleet.Fleet) (*mqttfeed.Feed, cont
 		<-done
 	})
 	return feed, cancel, done
+}
+
+// routeDemand holds one route, like a client watching it.
+func routeDemand(code string) *mqttfeed.Demand {
+	d := mqttfeed.NewDemand(time.Now)
+	d.Hold("test", routeInterest(code))
+	return d
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {
@@ -71,7 +81,7 @@ func waitSubscribed(t *testing.T, b *broker) {
 func TestFeedConnectsAndAppliesMessages(t *testing.T) {
 	b := newBroker(t)
 	buses := fleet.New()
-	feed, _, _ := startFeed(t, b, buses)
+	feed, _, _ := startFeed(t, b, buses, routeDemand("3F"))
 
 	waitSubscribed(t, b)
 	serverNames, subprotocols, subscriptions := b.seen()
@@ -81,8 +91,8 @@ func TestFeedConnectsAndAppliesMessages(t *testing.T) {
 	if subprotocols[0] != "mqtt" {
 		t.Errorf("WebSocket subprotocol = %q, want mqtt", subprotocols[0])
 	}
-	if subscriptions[0] != "/mobile_armada/#" {
-		t.Errorf("subscription = %q, want /mobile_armada/#", subscriptions[0])
+	if subscriptions[0] != "/mobile_armada/+/3F/#" {
+		t.Errorf("subscription = %q, want /mobile_armada/+/3F/#", subscriptions[0])
 	}
 
 	b.publish(busTopic, []byte(busPayload))
@@ -114,7 +124,7 @@ func reportObservedAt(at time.Time) []byte {
 
 func TestFeedReportsMedianDelay(t *testing.T) {
 	b := newBroker(t)
-	feed, _, _ := startFeed(t, b, fleet.New())
+	feed, _, _ := startFeed(t, b, fleet.New(), routeDemand("3F"))
 	waitSubscribed(t, b)
 	if d := feed.Status().Delay; d != 0 {
 		t.Errorf("Delay before any report = %v, want 0", d)
@@ -135,7 +145,7 @@ func TestFeedReportsMedianDelay(t *testing.T) {
 
 func TestFeedDelayFollowsRecentReports(t *testing.T) {
 	b := newBroker(t)
-	feed, _, _ := startFeed(t, b, fleet.New())
+	feed, _, _ := startFeed(t, b, fleet.New(), routeDemand("3F"))
 	waitSubscribed(t, b)
 
 	now := time.Now()
@@ -155,7 +165,7 @@ func TestFeedDelayFollowsRecentReports(t *testing.T) {
 func TestFeedResubscribesAfterReconnect(t *testing.T) {
 	b := newBroker(t)
 	buses := fleet.New()
-	feed, _, _ := startFeed(t, b, buses)
+	feed, _, _ := startFeed(t, b, buses, routeDemand("3F"))
 	waitSubscribed(t, b)
 
 	b.dropClients()
@@ -170,7 +180,7 @@ func TestFeedResubscribesAfterReconnect(t *testing.T) {
 
 func TestRunDisconnectsOnCancel(t *testing.T) {
 	b := newBroker(t)
-	feed, cancel, done := startFeed(t, b, fleet.New())
+	feed, cancel, done := startFeed(t, b, fleet.New(), routeDemand("3F"))
 	waitSubscribed(t, b)
 
 	cancel()
@@ -182,6 +192,105 @@ func TestRunDisconnectsOnCancel(t *testing.T) {
 	if feed.Status().Connected {
 		t.Error("status still connected after Run returned")
 	}
+}
+
+func waitCurrent(t *testing.T, b *broker, want []string) {
+	t.Helper()
+	waitFor(t, fmt.Sprintf("broker filters %v", want), func() bool { return slices.Equal(b.current(), want) })
+}
+
+func TestFeedFollowsDemand(t *testing.T) {
+	b := newBroker(t)
+	buses := fleet.New()
+	feed, _, _ := startFeed(t, b, buses, routeDemand("3F"))
+	waitCurrent(t, b, []string{"/mobile_armada/+/3F/#"})
+
+	b.publish("/mobile_armada/0026-0028/9/9-L01/TST-002", []byte(strings.ReplaceAll(busPayload, "TST-001", "TST-002")))
+	b.publish(busTopic, []byte(busPayload))
+	waitFor(t, "the watched route's bus", func() bool { _, ok := buses.Bus("TST-001"); return ok })
+	if _, ok := buses.Bus("TST-002"); ok {
+		t.Error("bus on an unwatched route applied")
+	}
+	if st := feed.Status(); st.Messages != 1 || st.Filters != 1 || st.WholeFleet {
+		t.Errorf("status = %+v, want 1 message and 1 filter", st)
+	}
+}
+
+func TestFeedUnsubscribesAfterGrace(t *testing.T) {
+	b := newBroker(t)
+	clock := newFakeClock()
+	demand := mqttfeed.NewDemand(clock.Now)
+	demand.Hold("test", routeInterest("3F"))
+	feed, _, _ := startFeed(t, b, fleet.New(), demand)
+	waitCurrent(t, b, []string{"/mobile_armada/+/3F/#"})
+
+	demand.Release("test")
+	clock.advanceTo(29 * time.Second)
+	time.Sleep(1500 * time.Millisecond)
+	if got := b.current(); len(got) != 1 {
+		t.Fatalf("broker filters within the grace = %v, want the route kept", got)
+	}
+	clock.advanceTo(31 * time.Second)
+	waitCurrent(t, b, nil)
+	waitFor(t, "no filters in status", func() bool { return feed.Status().Filters == 0 })
+}
+
+func TestFeedResubscribesCurrentSetAfterReconnect(t *testing.T) {
+	b := newBroker(t)
+	demand := mqttfeed.NewDemand(time.Now)
+	area := geo.BBox{West: 106.8272, East: 106.8272, South: -6.1754, North: -6.1754}
+	demand.Hold("test", mqttfeed.Interest{Areas: []geo.BBox{area}, RouteCodes: []string{"3F"}})
+	startFeed(t, b, fleet.New(), demand)
+	want := demand.Wanted()
+	waitCurrent(t, b, want)
+
+	b.dropClients()
+	waitFor(t, "a second connection replacing the first", func() bool {
+		serverNames, _, _ := b.seen()
+		return len(serverNames) == 2 && b.liveConnections() == 1
+	})
+	waitCurrent(t, b, want)
+}
+
+func TestFeedCountsRefusedFilters(t *testing.T) {
+	b := newBroker(t)
+	const refused = "/mobile_armada/+/9/#"
+	b.refuse(refused)
+	feed, _, _ := startFeed(t, b, fleet.New(), routeDemand("9"))
+	waitFor(t, "the refusal in status", func() bool { return feed.Status().Rejected["subscribe_refused"] == 1 })
+
+	time.Sleep(2 * time.Second)
+	if got := feed.Status().Rejected["subscribe_refused"]; got != 1 {
+		t.Errorf("subscribe_refused = %d after more ticks, want 1", got)
+	}
+	if n := b.timesSubscribed(refused); n != 1 {
+		t.Errorf("refused filter subscribed %d times, want once", n)
+	}
+	if st := feed.Status(); st.Filters != 0 {
+		t.Errorf("Filters = %d, want 0 for a refused filter", st.Filters)
+	}
+}
+
+func TestFeedSubscribesNothingWithoutDemand(t *testing.T) {
+	b := newBroker(t)
+	feed, _, _ := startFeed(t, b, fleet.New(), mqttfeed.NewDemand(time.Now))
+	waitFor(t, "connected", func() bool { return feed.Status().Connected })
+	time.Sleep(1500 * time.Millisecond)
+	if _, _, subscriptions := b.seen(); len(subscriptions) != 0 {
+		t.Errorf("subscriptions = %v, want none", subscriptions)
+	}
+	if st := feed.Status(); st.Filters != 0 {
+		t.Errorf("Filters = %d, want 0", st.Filters)
+	}
+}
+
+func TestFeedSwitchesToWholeFleet(t *testing.T) {
+	b := newBroker(t)
+	demand := mqttfeed.NewDemand(time.Now)
+	demand.Hold("test", mqttfeed.Interest{Areas: []geo.BBox{{West: 106.6, South: -6.4, East: 107.1, North: -5.9}}})
+	feed, _, _ := startFeed(t, b, fleet.New(), demand)
+	waitCurrent(t, b, []string{mqttfeed.WholeFleet})
+	waitFor(t, "wholeFleet in status", func() bool { return feed.Status().WholeFleet })
 }
 
 func TestClientIDIsCreatedOnceAndReused(t *testing.T) {

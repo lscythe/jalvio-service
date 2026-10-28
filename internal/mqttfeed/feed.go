@@ -21,12 +21,14 @@ import (
 )
 
 const (
-	topic                = "/mobile_armada/#"
 	connectTimeout       = 15 * time.Second
 	connectRetryInterval = 10 * time.Second
 	maxReconnectInterval = 60 * time.Second
 	subscribeTimeout     = 10 * time.Second
 	disconnectQuiesce    = 250 // milliseconds
+	applyInterval        = 500 * time.Millisecond
+	filtersPerPacket     = 500
+	subackFailure        = 0x80
 )
 
 // DelayWindow is how many recent reports the median delay covers.
@@ -60,18 +62,32 @@ type Status struct {
 	// Malformed counts messages that could not be decoded.
 	Malformed int64
 	// Rejected counts every skipped message by fleet.RejectReason,
-	// including reports without a GPS fix, which are not malformed.
+	// including reports without a GPS fix, which are not malformed, and
+	// filters the broker refused as subscribe_refused.
 	Rejected map[string]int64
+	// Filters counts the broker filters currently subscribed.
+	Filters    int
+	WholeFleet bool
 }
 
 type Feed struct {
 	cfg    Config
 	sink   Sink
+	demand *Demand
 	logger *slog.Logger
+	resync chan struct{}
 
-	mu     sync.Mutex
-	status Status
-	delays recentDelays
+	mu sync.Mutex
+	// connections counts connects, so sync knows the broker forgot every
+	// filter (clean session) since it last ran.
+	connections int
+	status      Status
+	delays      recentDelays
+
+	// Only Run's goroutine uses these.
+	syncedConnection int
+	subscribed       map[string]bool
+	refused          map[string]bool
 }
 
 type recentDelays struct {
@@ -97,8 +113,8 @@ func (r *recentDelays) median() time.Duration {
 	return sorted[len(sorted)/2]
 }
 
-func New(cfg Config, sink Sink, logger *slog.Logger) *Feed {
-	return &Feed{cfg: cfg, sink: sink, logger: logger}
+func New(cfg Config, sink Sink, demand *Demand, logger *slog.Logger) *Feed {
+	return &Feed{cfg: cfg, sink: sink, demand: demand, logger: logger, resync: make(chan struct{}, 1)}
 }
 
 func (f *Feed) Status() Status {
@@ -110,8 +126,9 @@ func (f *Feed) Status() Status {
 	return st
 }
 
-// Run connects, retrying until it succeeds, and subscribes to the whole fleet
-// after every connect. It returns once ctx is cancelled and the client has
+// Run connects, retrying until it succeeds, and keeps the broker
+// subscriptions in step with what demand wants, after every connect and as
+// demand changes. It returns once ctx is cancelled and the client has
 // disconnected.
 func (f *Feed) Run(ctx context.Context) {
 	tlsConfig := &tls.Config{
@@ -133,6 +150,10 @@ func (f *Feed) Run(ctx context.Context) {
 			defer cancel()
 			return dialWebSocket(dialCtx, uri.String(), f.cfg.DialAddress, tlsConfig)
 		}).
+		// Filters overlap (a bus can match a tile and its route), and Paho
+		// calls every matching subscription handler; one default handler
+		// handles each delivered message once.
+		SetDefaultPublishHandler(f.handle).
 		SetOnConnectHandler(f.onConnect).
 		SetConnectionLostHandler(func(_ mqtt.Client, err error) {
 			f.setConnected(false)
@@ -146,21 +167,126 @@ func (f *Feed) Run(ctx context.Context) {
 
 	client := mqtt.NewClient(opts)
 	client.Connect()
-	<-ctx.Done()
-	client.Disconnect(disconnectQuiesce)
-	f.setConnected(false)
+	tick := time.NewTicker(applyInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			client.Disconnect(disconnectQuiesce)
+			f.setConnected(false)
+			return
+		case <-tick.C:
+			f.sync(client)
+		case <-f.resync:
+			f.sync(client)
+		}
+	}
 }
 
-func (f *Feed) onConnect(c mqtt.Client) {
-	f.setConnected(true)
+func (f *Feed) onConnect(mqtt.Client) {
+	f.mu.Lock()
+	f.status.Connected = true
+	f.connections++
+	f.mu.Unlock()
 	f.logger.Info("mqtt connected")
-	token := c.Subscribe(topic, 0, f.handle)
-	if !token.WaitTimeout(subscribeTimeout) {
-		f.logger.Warn("mqtt subscribe timed out")
+	select {
+	case f.resync <- struct{}{}:
+	default:
+	}
+}
+
+// sync subscribes what demand wants and the broker lacks, then unsubscribes
+// what is no longer wanted, so a switch to the whole fleet has no gap.
+func (f *Feed) sync(c mqtt.Client) {
+	// Asked every tick, so expired demand is forgotten while offline too.
+	demanded := f.demand.Wanted()
+	// The client's own state, because the lost and connect handlers run in
+	// separate goroutines and can leave status.Connected behind.
+	if !c.IsConnectionOpen() {
 		return
 	}
-	if err := token.Error(); err != nil {
-		f.logger.Warn("mqtt subscribe failed", "error", err)
+	f.mu.Lock()
+	connection := f.connections
+	f.mu.Unlock()
+	if connection != f.syncedConnection {
+		f.syncedConnection = connection
+		f.subscribed, f.refused = map[string]bool{}, map[string]bool{}
+	}
+
+	wanted := map[string]bool{}
+	var add []string
+	for _, filter := range demanded {
+		wanted[filter] = true
+		if !f.subscribed[filter] && !f.refused[filter] {
+			add = append(add, filter)
+		}
+	}
+	var remove []string
+	for filter := range f.subscribed {
+		if !wanted[filter] {
+			remove = append(remove, filter)
+		}
+	}
+	for filter := range f.refused {
+		if !wanted[filter] {
+			delete(f.refused, filter)
+		}
+	}
+	slices.Sort(remove)
+	for chunk := range slices.Chunk(add, filtersPerPacket) {
+		f.subscribe(c, chunk)
+	}
+	for chunk := range slices.Chunk(remove, filtersPerPacket) {
+		f.unsubscribe(c, chunk)
+	}
+
+	f.mu.Lock()
+	f.status.Filters = len(f.subscribed)
+	f.status.WholeFleet = f.subscribed[WholeFleet]
+	f.mu.Unlock()
+}
+
+// subscribe leaves filters out of the record when the broker does not
+// confirm them, so the next sync tries again.
+func (f *Feed) subscribe(c mqtt.Client, filters []string) {
+	qos := make(map[string]byte, len(filters))
+	for _, filter := range filters {
+		qos[filter] = 0
+	}
+	token := c.SubscribeMultiple(qos, nil)
+	if !token.WaitTimeout(subscribeTimeout) || token.Error() != nil {
+		f.logger.Warn("mqtt subscribe failed", "filters", len(filters), "error", token.Error())
+		return
+	}
+	refused := 0
+	for filter, code := range token.(*mqtt.SubscribeToken).Result() {
+		if code == subackFailure {
+			f.refused[filter] = true
+			refused++
+			continue
+		}
+		f.subscribed[filter] = true
+	}
+	if refused > 0 {
+		f.mu.Lock()
+		if f.status.Rejected == nil {
+			f.status.Rejected = map[string]int64{}
+		}
+		f.status.Rejected["subscribe_refused"] += int64(refused)
+		f.mu.Unlock()
+		f.logger.Warn("mqtt broker refused filters", "filters", refused)
+	}
+}
+
+// unsubscribe forgets filters whatever the broker answers: a filter it kept
+// only costs traffic until the next reconnect.
+func (f *Feed) unsubscribe(c mqtt.Client, filters []string) {
+	token := c.Unsubscribe(filters...)
+	if !token.WaitTimeout(subscribeTimeout) || token.Error() != nil {
+		f.logger.Warn("mqtt unsubscribe failed", "filters", len(filters), "error", token.Error())
+	}
+	for _, filter := range filters {
+		delete(f.subscribed, filter)
 	}
 }
 
