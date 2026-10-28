@@ -187,9 +187,9 @@ func (f *Feed) Run(ctx context.Context) {
 			f.setConnected(false)
 			return
 		case <-tick.C:
-			f.sync(client)
+			f.sync(ctx, client)
 		case <-f.resync:
-			f.sync(client)
+			f.sync(ctx, client)
 		}
 	}
 }
@@ -217,12 +217,14 @@ func (f *Feed) onConnectionNotification(_ mqtt.Client, n mqtt.ConnectionNotifica
 
 // sync subscribes what demand wants and the broker lacks, then unsubscribes
 // what is no longer wanted, so a switch to the whole fleet has no gap.
-func (f *Feed) sync(c mqtt.Client) {
+func (f *Feed) sync(ctx context.Context, c mqtt.Client) {
 	// Asked every tick, so expired demand is forgotten while offline too.
 	demanded := f.demand.Wanted()
 	// The client's own state, because the lost and connect handlers run in
 	// separate goroutines and can leave status.Connected behind.
 	if !c.IsConnectionOpen() {
+		// A clean session keeps nothing once the connection is gone.
+		f.setFilters(0, false)
 		return
 	}
 	f.mu.Lock()
@@ -253,29 +255,62 @@ func (f *Feed) sync(c mqtt.Client) {
 		}
 	}
 	slices.Sort(remove)
+	// Status follows each confirmed chunk, since a slow broker can take
+	// several timeouts to get through them all.
+	defer f.reportFilters()
 	for chunk := range slices.Chunk(add, filtersPerPacket) {
-		f.subscribe(c, chunk)
+		if ctx.Err() != nil {
+			return
+		}
+		f.subscribe(ctx, c, chunk)
+		f.reportFilters()
 	}
 	for chunk := range slices.Chunk(remove, filtersPerPacket) {
-		f.unsubscribe(c, chunk)
+		if ctx.Err() != nil {
+			return
+		}
+		f.unsubscribe(ctx, c, chunk)
+		f.reportFilters()
 	}
+}
 
+func (f *Feed) reportFilters() {
+	f.setFilters(len(f.subscribed), f.subscribed[WholeFleet])
+}
+
+func (f *Feed) setFilters(n int, wholeFleet bool) {
 	f.mu.Lock()
-	f.status.Filters = len(f.subscribed)
-	f.status.WholeFleet = f.subscribed[WholeFleet]
-	f.mu.Unlock()
+	defer f.mu.Unlock()
+	f.status.Filters = n
+	f.status.WholeFleet = wholeFleet
+}
+
+// confirmed waits for the broker to answer t, giving up after
+// subscribeTimeout or when ctx ends, so shutdown never waits on the broker.
+func confirmed(ctx context.Context, t mqtt.Token) bool {
+	timer := time.NewTimer(subscribeTimeout)
+	defer timer.Stop()
+	select {
+	case <-t.Done():
+		return t.Error() == nil
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	return false
 }
 
 // subscribe leaves filters out of the record when the broker does not
 // confirm them, so the next sync tries again.
-func (f *Feed) subscribe(c mqtt.Client, filters []string) {
+func (f *Feed) subscribe(ctx context.Context, c mqtt.Client, filters []string) {
 	qos := make(map[string]byte, len(filters))
 	for _, filter := range filters {
 		qos[filter] = 0
 	}
 	token := c.SubscribeMultiple(qos, nil)
-	if !token.WaitTimeout(subscribeTimeout) || token.Error() != nil {
-		f.logger.Warn("mqtt subscribe failed", "filters", len(filters), "error", token.Error())
+	if !confirmed(ctx, token) {
+		if ctx.Err() == nil {
+			f.logger.Warn("mqtt subscribe failed", "filters", len(filters), "error", token.Error())
+		}
 		return
 	}
 	refused := 0
@@ -300,9 +335,9 @@ func (f *Feed) subscribe(c mqtt.Client, filters []string) {
 
 // unsubscribe forgets filters whatever the broker answers: a filter it kept
 // only costs traffic until the next reconnect.
-func (f *Feed) unsubscribe(c mqtt.Client, filters []string) {
+func (f *Feed) unsubscribe(ctx context.Context, c mqtt.Client, filters []string) {
 	token := c.Unsubscribe(filters...)
-	if !token.WaitTimeout(subscribeTimeout) || token.Error() != nil {
+	if !confirmed(ctx, token) && ctx.Err() == nil {
 		f.logger.Warn("mqtt unsubscribe failed", "filters", len(filters), "error", token.Error())
 	}
 	for _, filter := range filters {
