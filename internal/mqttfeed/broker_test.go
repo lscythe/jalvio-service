@@ -31,6 +31,9 @@ type broker struct {
 	subscribed     chan struct{}
 	refuseConnect  bool
 	ignorePing     bool
+	// subacksLeft is how many more SUBSCRIBEs get an answer; negative
+	// answers all.
+	subacksLeft int
 }
 
 type brokerConn struct {
@@ -45,6 +48,7 @@ func newBroker(t *testing.T) *broker {
 		subscribeCount: map[string]int{},
 		refused:        map[string]bool{},
 		subscribed:     make(chan struct{}, 16),
+		subacksLeft:    -1,
 	}
 	upgrader := websocket.Upgrader{Subprotocols: []string{"mqtt"}}
 	b.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +95,9 @@ func (b *broker) serve(ws *websocket.Conn) {
 			b.send(ws, []byte{0x20, 0x02, 0x00, 0x00})
 		case 8: // SUBSCRIBE
 			codes := b.subscribe(ws, filtersIn(body[2:], true))
+			if !b.takeSuback() {
+				continue
+			}
 			b.send(ws, append(append([]byte{0x90}, remainingLength(2+len(codes))...), append(body[:2:2], codes...)...))
 			select {
 			case b.subscribed <- struct{}{}:
@@ -249,6 +256,27 @@ func (b *broker) ignoringPings() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ignorePing
+}
+
+// answerSubscribes answers only the next n SUBSCRIBEs and leaves later ones
+// unanswered, as a stalled broker would.
+func (b *broker) answerSubscribes(n int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.subacksLeft = n
+}
+
+func (b *broker) takeSuback() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.subacksLeft < 0 {
+		return true
+	}
+	if b.subacksLeft == 0 {
+		return false
+	}
+	b.subacksLeft--
+	return true
 }
 
 // dropClients closes every client connection, as a broker restart would.

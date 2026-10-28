@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	busTopic   = "/mobile_armada/0026-0028/3F/3F-L01/TST-001"
+	busTopic   = "/mobile_armada/0018-0018/3F/3F-L01/TST-001"
 	busPayload = `{"bus_body_no":"TST-001","route_code":"3F","trip_id":"3F-L01",` +
 		`"latitude":-6.2,"longitude":106.8,"timestamp":1785355911000}`
 	noFixPayload = `{"bus_body_no":"TST-001","route_code":"3F","trip_id":"3F-L01",` +
@@ -72,7 +72,12 @@ func routeDemand(code string) *mqttfeed.Demand {
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	waitWithin(t, 10*time.Second, what, cond)
+}
+
+func waitWithin(t *testing.T, limit time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(limit)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
@@ -236,6 +241,116 @@ func TestFeedReconnectsWhenPingsGoUnanswered(t *testing.T) {
 	waitFor(t, "a reconnect after an unanswered ping", func() bool { return feed.Status().Reconnects >= 1 })
 }
 
+func TestFeedAreaReceivesBusInside(t *testing.T) {
+	b := newBroker(t)
+	buses := fleet.New()
+	demand := mqttfeed.NewDemand(time.Now)
+	demand.Hold("test", mqttfeed.Interest{Areas: []geo.BBox{{West: 106.8, South: -6.2, East: 106.8, North: -6.2}}})
+	startFeed(t, b, buses, demand)
+	waitCurrent(t, b, demand.Wanted())
+
+	b.publish(busTopic, []byte(busPayload))
+	waitFor(t, "the bus inside the watched area", func() bool { _, ok := buses.Bus("TST-001"); return ok })
+}
+
+func TestFeedHandlesAMessageOnceWhenFiltersOverlap(t *testing.T) {
+	b := newBroker(t)
+	demand := mqttfeed.NewDemand(time.Now)
+	demand.Hold("test", mqttfeed.Interest{RouteCodes: []string{"3F"}, FleetNumbers: []string{"TST-001"}})
+	feed, _, _ := startFeed(t, b, fleet.New(), demand)
+	waitCurrent(t, b, demand.Wanted())
+
+	b.publish(busTopic, []byte(busPayload))
+	waitFor(t, "the message", func() bool { return feed.Status().Messages >= 1 })
+	time.Sleep(200 * time.Millisecond)
+	if n := feed.Status().Messages; n != 1 {
+		t.Errorf("Messages = %d for one delivery matching two filters, want 1", n)
+	}
+}
+
+func TestFeedReportsEachConfirmedChunk(t *testing.T) {
+	b := newBroker(t)
+	b.answerSubscribes(1)
+	demand := mqttfeed.NewDemand(time.Now)
+	demand.Hold("test", mqttfeed.Interest{FleetNumbers: fleetNumbers(600)})
+	feed, _, _ := startFeed(t, b, fleet.New(), demand)
+
+	waitWithin(t, 3*time.Second, "the first chunk of 500 in status while the second waits",
+		func() bool { return feed.Status().Filters == 500 })
+}
+
+func TestRunStopsWhileWaitingForTheBroker(t *testing.T) {
+	b := newBroker(t)
+	b.answerSubscribes(0)
+	_, cancel, done := startFeed(t, b, fleet.New(), routeDemand("3F"))
+	waitFor(t, "the subscribe sent", func() bool { return b.timesSubscribed("/mobile_armada/+/3F/#") == 1 })
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run still waiting on an unanswered subscribe 2 s after cancel")
+	}
+}
+
+func TestFeedReportsNoFiltersWhileDisconnected(t *testing.T) {
+	b := newBroker(t)
+	demand := mqttfeed.NewDemand(time.Now)
+	demand.Hold("test", mqttfeed.Interest{Areas: []geo.BBox{{West: 106.6, South: -6.4, East: 107.1, North: -5.9}}})
+	feed, _, _ := startFeed(t, b, fleet.New(), demand)
+	waitFor(t, "wholeFleet in status", func() bool { return feed.Status().WholeFleet })
+
+	b.refuseConnects()
+	b.dropClients()
+	waitFor(t, "no filters while disconnected", func() bool {
+		st := feed.Status()
+		return st.Filters == 0 && !st.WholeFleet
+	})
+}
+
+func TestFeedSwitchesBackFromWholeFleet(t *testing.T) {
+	b := newBroker(t)
+	clock := newFakeClock()
+	demand := mqttfeed.NewDemand(clock.Now)
+	demand.Hold("city", mqttfeed.Interest{Areas: []geo.BBox{{West: 106.6, South: -6.4, East: 107.1, North: -5.9}}})
+	demand.Hold("route", routeInterest("3F"))
+	feed, _, _ := startFeed(t, b, fleet.New(), demand)
+	waitCurrent(t, b, []string{mqttfeed.WholeFleet})
+
+	demand.Release("city")
+	clock.advanceTo(31 * time.Second)
+	waitCurrent(t, b, []string{"/mobile_armada/+/3F/#"})
+	waitFor(t, "one filter and no whole fleet in status", func() bool {
+		st := feed.Status()
+		return st.Filters == 1 && !st.WholeFleet
+	})
+}
+
+func TestFeedRetriesARefusedFilterOnceWantedAgain(t *testing.T) {
+	b := newBroker(t)
+	const filter = "/mobile_armada/+/9/#"
+	b.refuse(filter)
+	clock := newFakeClock()
+	demand := mqttfeed.NewDemand(clock.Now)
+	demand.Hold("test", routeInterest("9"))
+	startFeed(t, b, fleet.New(), demand)
+	waitFor(t, "the first attempt", func() bool { return b.timesSubscribed(filter) == 1 })
+
+	demand.Release("test")
+	clock.advanceTo(31 * time.Second)
+	time.Sleep(1500 * time.Millisecond) // a few syncs see it unwanted and forget the refusal
+	demand.Hold("test", routeInterest("9"))
+	waitFor(t, "a second attempt", func() bool { return b.timesSubscribed(filter) == 2 })
+}
+
+func fleetNumbers(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("X%03d", i)
+	}
+	return out
+}
+
 // closedAddress is a local address nothing listens on.
 func closedAddress(t *testing.T) string {
 	t.Helper()
@@ -277,7 +392,7 @@ func TestFeedFollowsDemand(t *testing.T) {
 	feed, _, _ := startFeed(t, b, buses, routeDemand("3F"))
 	waitCurrent(t, b, []string{"/mobile_armada/+/3F/#"})
 
-	b.publish("/mobile_armada/0026-0028/9/9-L01/TST-002", []byte(strings.ReplaceAll(busPayload, "TST-001", "TST-002")))
+	b.publish("/mobile_armada/0018-0018/9/9-L01/TST-002", []byte(strings.ReplaceAll(busPayload, "TST-001", "TST-002")))
 	b.publish(busTopic, []byte(busPayload))
 	waitFor(t, "the watched route's bus", func() bool { _, ok := buses.Bus("TST-001"); return ok })
 	if _, ok := buses.Bus("TST-002"); ok {
