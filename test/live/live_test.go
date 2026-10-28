@@ -97,12 +97,14 @@ func TestBroker(t *testing.T) {
 	}
 
 	buses := fleet.New()
+	demand := mqttfeed.NewDemand(time.Now)
+	demand.Hold("live", mqttfeed.Interest{Areas: []geo.BBox{{West: 106.81, South: -6.19, East: 106.85, North: -6.15}}})
 	live := mqttfeed.New(mqttfeed.Config{
 		URL:           os.Getenv("MQTT_URL"),
 		TLSServerName: os.Getenv("MQTT_TLS_SERVER_NAME"),
 		DialAddress:   os.Getenv("MQTT_DIAL_ADDRESS"),
 		ClientID:      clientID,
-	}, buses, slog.New(slog.NewTextHandler(out, nil)))
+	}, buses, demand, slog.New(slog.NewTextHandler(out, nil)))
 
 	ctx, cancel := context.WithTimeout(t.Context(), duration)
 	defer cancel()

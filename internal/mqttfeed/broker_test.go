@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,22 +16,34 @@ import (
 )
 
 // broker is a minimal MQTT 3.1.1 broker over TLS WebSocket. It handles just
-// enough of the protocol for the feed: CONNECT, SUBSCRIBE, PINGREQ, and
-// QoS 0 PUBLISH to clients.
+// enough of the protocol for the feed: CONNECT, SUBSCRIBE, UNSUBSCRIBE,
+// PINGREQ, and QoS 0 PUBLISH to clients whose filters match.
 type broker struct {
 	server *httptest.Server
 
-	mu            sync.Mutex
-	conns         map[*websocket.Conn]*sync.Mutex
-	serverNames   []string
-	subprotocols  []string
-	subscriptions []string
-	subscribed    chan struct{}
+	mu             sync.Mutex
+	conns          map[*websocket.Conn]*brokerConn
+	serverNames    []string
+	subprotocols   []string
+	subscriptions  []string
+	subscribeCount map[string]int
+	refused        map[string]bool
+	subscribed     chan struct{}
+}
+
+type brokerConn struct {
+	write   sync.Mutex
+	filters map[string]bool
 }
 
 func newBroker(t *testing.T) *broker {
 	t.Helper()
-	b := &broker{conns: map[*websocket.Conn]*sync.Mutex{}, subscribed: make(chan struct{}, 16)}
+	b := &broker{
+		conns:          map[*websocket.Conn]*brokerConn{},
+		subscribeCount: map[string]int{},
+		refused:        map[string]bool{},
+		subscribed:     make(chan struct{}, 16),
+	}
 	upgrader := websocket.Upgrader{Subprotocols: []string{"mqtt"}}
 	b.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ws, err := upgrader.Upgrade(w, r, nil)
@@ -40,7 +53,7 @@ func newBroker(t *testing.T) *broker {
 		b.mu.Lock()
 		b.serverNames = append(b.serverNames, r.TLS.ServerName)
 		b.subprotocols = append(b.subprotocols, ws.Subprotocol())
-		b.conns[ws] = &sync.Mutex{}
+		b.conns[ws] = &brokerConn{filters: map[string]bool{}}
 		b.mu.Unlock()
 		b.serve(ws)
 	}))
@@ -71,13 +84,15 @@ func (b *broker) serve(ws *websocket.Conn) {
 		case 1: // CONNECT
 			b.send(ws, []byte{0x20, 0x02, 0x00, 0x00})
 		case 8: // SUBSCRIBE
-			id := body[:2]
-			topic := string(body[4 : 4+binary.BigEndian.Uint16(body[2:4])])
-			b.mu.Lock()
-			b.subscriptions = append(b.subscriptions, topic)
-			b.mu.Unlock()
-			b.send(ws, []byte{0x90, 0x03, id[0], id[1], 0x00})
-			b.subscribed <- struct{}{}
+			codes := b.subscribe(ws, filtersIn(body[2:], true))
+			b.send(ws, append(append([]byte{0x90}, remainingLength(2+len(codes))...), append(body[:2:2], codes...)...))
+			select {
+			case b.subscribed <- struct{}{}:
+			default:
+			}
+		case 10: // UNSUBSCRIBE
+			b.unsubscribe(ws, filtersIn(body[2:], false))
+			b.send(ws, []byte{0xB0, 0x02, body[0], body[1]})
 		case 12: // PINGREQ
 			b.send(ws, []byte{0xD0, 0x00})
 		case 14: // DISCONNECT
@@ -86,16 +101,113 @@ func (b *broker) serve(ws *websocket.Conn) {
 	}
 }
 
-// publish sends a QoS 0 message to every connected client.
+// filtersIn reads the topic filters of a SUBSCRIBE (each followed by a QoS
+// byte) or UNSUBSCRIBE payload.
+func filtersIn(payload []byte, withQoS bool) []string {
+	var filters []string
+	for len(payload) >= 2 {
+		n := int(binary.BigEndian.Uint16(payload))
+		filters = append(filters, string(payload[2:2+n]))
+		payload = payload[2+n:]
+		if withQoS {
+			payload = payload[1:]
+		}
+	}
+	return filters
+}
+
+func (b *broker) subscribe(ws *websocket.Conn, filters []string) []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	codes := make([]byte, len(filters))
+	for i, f := range filters {
+		b.subscriptions = append(b.subscriptions, f)
+		b.subscribeCount[f]++
+		if b.refused[f] {
+			codes[i] = 0x80
+			continue
+		}
+		if c, ok := b.conns[ws]; ok {
+			c.filters[f] = true
+		}
+	}
+	return codes
+}
+
+func (b *broker) unsubscribe(ws *websocket.Conn, filters []string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if c, ok := b.conns[ws]; ok {
+		for _, f := range filters {
+			delete(c.filters, f)
+		}
+	}
+}
+
+// refuse makes later SUBSCRIBEs of filter fail with return code 0x80.
+func (b *broker) refuse(filter string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refused[filter] = true
+}
+
+func (b *broker) timesSubscribed(filter string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.subscribeCount[filter]
+}
+
+func (b *broker) liveConnections() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.conns)
+}
+
+// current lists the filters live connections hold, sorted.
+func (b *broker) current() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []string
+	for _, c := range b.conns {
+		for f := range c.filters {
+			out = append(out, f)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// matches reports whether an MQTT topic filter matches topic.
+func matches(filter, topic string) bool {
+	fs, ts := strings.Split(filter, "/"), strings.Split(topic, "/")
+	for i, f := range fs {
+		switch {
+		case f == "#":
+			return true
+		case i >= len(ts):
+			return false
+		case f != "+" && f != ts[i]:
+			return false
+		}
+	}
+	return len(fs) == len(ts)
+}
+
+// publish sends a QoS 0 message to every client with a matching filter.
 func (b *broker) publish(topic string, payload []byte) {
 	body := binary.BigEndian.AppendUint16(nil, uint16(len(topic)))
 	body = append(append(body, topic...), payload...)
 	packet := append([]byte{0x30}, remainingLength(len(body))...)
 	packet = append(packet, body...)
 	b.mu.Lock()
-	conns := make([]*websocket.Conn, 0, len(b.conns))
-	for ws := range b.conns {
-		conns = append(conns, ws)
+	var conns []*websocket.Conn
+	for ws, c := range b.conns {
+		for f := range c.filters {
+			if matches(f, topic) {
+				conns = append(conns, ws)
+				break
+			}
+		}
 	}
 	b.mu.Unlock()
 	for _, ws := range conns {
@@ -114,13 +226,13 @@ func (b *broker) dropClients() {
 
 func (b *broker) send(ws *websocket.Conn, packet []byte) {
 	b.mu.Lock()
-	lock, ok := b.conns[ws]
+	c, ok := b.conns[ws]
 	b.mu.Unlock()
 	if !ok {
 		return
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	c.write.Lock()
+	defer c.write.Unlock()
 	_ = ws.WriteMessage(websocket.BinaryMessage, packet)
 }
 

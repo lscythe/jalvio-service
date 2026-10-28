@@ -107,7 +107,7 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 			TLSServerName: cfg.MQTTServerName,
 			DialAddress:   cfg.MQTTDialAddress,
 			ClientID:      clientID,
-		}, buses, logger)
+		}, buses, mqttfeed.NewDemand(time.Now), logger)
 		feed = live
 	}
 
