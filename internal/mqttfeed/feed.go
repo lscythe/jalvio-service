@@ -31,6 +31,14 @@ const (
 	subackFailure        = 0x80
 )
 
+// The broker answers a ping only after the messages queued ahead of it,
+// which took up to about 30 s on a slow link; Paho's 10 s default timeout
+// then dropped connections that were still delivering.
+var (
+	keepAlive   = 30 * time.Second
+	pingTimeout = 30 * time.Second
+)
+
 // DelayWindow is how many recent reports the median delay covers.
 const DelayWindow = 1000
 
@@ -141,6 +149,8 @@ func (f *Feed) Run(ctx context.Context) {
 		SetClientID(f.cfg.ClientID).
 		SetCleanSession(true).
 		SetConnectTimeout(connectTimeout).
+		SetKeepAlive(keepAlive).
+		SetPingTimeout(pingTimeout).
 		SetConnectRetry(true).
 		SetConnectRetryInterval(connectRetryInterval).
 		SetAutoReconnect(true).
@@ -155,6 +165,7 @@ func (f *Feed) Run(ctx context.Context) {
 		// handles each delivered message once.
 		SetDefaultPublishHandler(f.handle).
 		SetOnConnectHandler(f.onConnect).
+		SetConnectionNotificationHandler(f.onConnectionNotification).
 		SetConnectionLostHandler(func(_ mqtt.Client, err error) {
 			f.setConnected(false)
 			f.logger.Warn("mqtt connection lost", "error", err)
@@ -192,6 +203,15 @@ func (f *Feed) onConnect(mqtt.Client) {
 	select {
 	case f.resync <- struct{}{}:
 	default:
+	}
+}
+
+// onConnectionNotification logs why each connect attempt failed: the dial,
+// TLS or WebSocket error, or the broker's CONNACK refusal. Paho retries
+// without reporting it otherwise.
+func (f *Feed) onConnectionNotification(_ mqtt.Client, n mqtt.ConnectionNotification) {
+	if failed, ok := n.(mqtt.ConnectionNotificationFailed); ok {
+		f.logger.Warn("mqtt connect failed", "error", failed.Reason)
 	}
 }
 

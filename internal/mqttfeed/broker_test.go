@@ -29,6 +29,8 @@ type broker struct {
 	subscribeCount map[string]int
 	refused        map[string]bool
 	subscribed     chan struct{}
+	refuseConnect  bool
+	ignorePing     bool
 }
 
 type brokerConn struct {
@@ -82,6 +84,10 @@ func (b *broker) serve(ws *websocket.Conn) {
 		}
 		switch kind {
 		case 1: // CONNECT
+			if b.refusingConnects() {
+				b.send(ws, []byte{0x20, 0x02, 0x00, 0x05}) // not authorized
+				return
+			}
 			b.send(ws, []byte{0x20, 0x02, 0x00, 0x00})
 		case 8: // SUBSCRIBE
 			codes := b.subscribe(ws, filtersIn(body[2:], true))
@@ -94,7 +100,9 @@ func (b *broker) serve(ws *websocket.Conn) {
 			b.unsubscribe(ws, filtersIn(body[2:], false))
 			b.send(ws, []byte{0xB0, 0x02, body[0], body[1]})
 		case 12: // PINGREQ
-			b.send(ws, []byte{0xD0, 0x00})
+			if !b.ignoringPings() {
+				b.send(ws, []byte{0xD0, 0x00})
+			}
 		case 14: // DISCONNECT
 			return
 		}
@@ -213,6 +221,34 @@ func (b *broker) publish(topic string, payload []byte) {
 	for _, ws := range conns {
 		b.send(ws, packet)
 	}
+}
+
+// refuseConnects answers every CONNECT with "not authorized", as the broker
+// does for a client ID its ACL rejects.
+func (b *broker) refuseConnects() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refuseConnect = true
+}
+
+func (b *broker) refusingConnects() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.refuseConnect
+}
+
+// ignorePings leaves every PINGREQ unanswered, as a broker does when the
+// reply waits behind a backlog.
+func (b *broker) ignorePings() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ignorePing = true
+}
+
+func (b *broker) ignoringPings() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ignorePing
 }
 
 // dropClients closes every client connection, as a broker restart would.

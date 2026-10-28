@@ -2,14 +2,17 @@ package mqttfeed_test
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,13 +34,22 @@ const (
 // TLS server name matches the test certificate rather than that host.
 func startFeed(t *testing.T, b *broker, sink *fleet.Fleet, demand *mqttfeed.Demand) (*mqttfeed.Feed, context.CancelFunc, <-chan struct{}) {
 	t.Helper()
-	feed := mqttfeed.New(mqttfeed.Config{
+	return runFeed(t, brokerConfig(b.addr(), b.rootCAs()), sink, demand, slog.New(slog.DiscardHandler))
+}
+
+func brokerConfig(dialAddress string, rootCAs *x509.CertPool) mqttfeed.Config {
+	return mqttfeed.Config{
 		URL:           "wss://broker.invalid:8084/mqtt",
 		TLSServerName: "example.com",
-		DialAddress:   b.addr(),
+		DialAddress:   dialAddress,
 		ClientID:      "jalvio-test",
-		RootCAs:       b.rootCAs(),
-	}, sink, demand, slog.New(slog.DiscardHandler))
+		RootCAs:       rootCAs,
+	}
+}
+
+func runFeed(t *testing.T, cfg mqttfeed.Config, sink *fleet.Fleet, demand *mqttfeed.Demand, logger *slog.Logger) (*mqttfeed.Feed, context.CancelFunc, <-chan struct{}) {
+	t.Helper()
+	feed := mqttfeed.New(cfg, sink, demand, logger)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
@@ -192,6 +204,66 @@ func TestRunDisconnectsOnCancel(t *testing.T) {
 	if feed.Status().Connected {
 		t.Error("status still connected after Run returned")
 	}
+}
+
+func TestFeedLogsWhyConnectsFail(t *testing.T) {
+	refusing := newBroker(t)
+	refusing.refuseConnects()
+	for _, tc := range []struct {
+		name   string
+		cfg    mqttfeed.Config
+		reason string
+	}{
+		{"refused by the broker", brokerConfig(refusing.addr(), refusing.rootCAs()), "not Authorized"},
+		{"unreachable", brokerConfig(closedAddress(t), nil), "connection refused"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := &logBuffer{}
+			runFeed(t, tc.cfg, fleet.New(), routeDemand("3F"), slog.New(slog.NewTextHandler(logs, nil)))
+			waitFor(t, "the connect failure in the log", func() bool {
+				s := logs.String()
+				return strings.Contains(s, `msg="mqtt connect failed"`) && strings.Contains(s, tc.reason)
+			})
+		})
+	}
+}
+
+func TestFeedReconnectsWhenPingsGoUnanswered(t *testing.T) {
+	mqttfeed.SetPingTimingForTest(t, time.Second, 500*time.Millisecond)
+	b := newBroker(t)
+	b.ignorePings()
+	feed, _, _ := startFeed(t, b, fleet.New(), routeDemand("3F"))
+	waitFor(t, "a reconnect after an unanswered ping", func() bool { return feed.Status().Reconnects >= 1 })
+}
+
+// closedAddress is a local address nothing listens on.
+func closedAddress(t *testing.T) string {
+	t.Helper()
+	l, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	_ = l.Close()
+	return addr
+}
+
+// logBuffer collects what the feed logs from its own goroutines.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }
 
 func waitCurrent(t *testing.T, b *broker, want []string) {
