@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -62,6 +63,18 @@ func (d *recordingDemand) touches() []mqttfeed.Interest {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return slices.Clone(d.touched)
+}
+
+func (d *recordingDemand) held() map[string]mqttfeed.Interest {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return maps.Clone(d.holds)
+}
+
+func (d *recordingDemand) releases() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.released)
 }
 
 type fakeFeed struct{ status mqttfeed.Status }
