@@ -2,16 +2,16 @@ package mqttfeed
 
 import (
 	"slices"
-	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	// MaxTiles is the most tile filters subscribed one by one; beyond it the
-	// whole fleet is cheaper for the broker and the same traffic for us.
-	MaxTiles = 1500
-	leaseFor = 60 * time.Second
+	// MaxFilters is the most filters subscribed one by one; beyond it the
+	// whole fleet is cheaper for the broker and about the same traffic for
+	// us, and anonymous requests cannot pile up broker subscriptions.
+	MaxFilters = 1500
+	leaseFor   = 60 * time.Second
 	// releaseGrace keeps a filter after it is no longer needed, so panning
 	// and zooming do not churn subscriptions.
 	releaseGrace = 30 * time.Second
@@ -39,8 +39,7 @@ func NewDemand(clock func() time.Time) *Demand {
 
 // Hold replaces whatever key held before.
 func (d *Demand) Hold(key string, i Interest) {
-	tiles, others := i.filters()
-	filters := append(tiles, others...)
+	filters := i.filters()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.release(key, filters)
@@ -56,25 +55,29 @@ func (d *Demand) Release(key string) {
 
 func (d *Demand) release(key string, kept []string) {
 	now := d.clock()
+	keep := make(map[string]bool, len(kept))
+	for _, f := range kept {
+		keep[f] = true
+	}
 	for _, f := range d.holds[key] {
-		if !slices.Contains(kept, f) {
+		if !keep[f] {
 			d.releasedAt[f] = now
 		}
 	}
 }
 
 func (d *Demand) Touch(i Interest) {
-	tiles, others := i.filters()
+	filters := i.filters()
 	end := d.clock().Add(leaseFor)
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for _, f := range append(tiles, others...) {
+	for _, f := range filters {
 		d.leaseEnds[f] = end
 	}
 }
 
 // Wanted lists the filters to subscribe, sorted: everything held, leased, or
-// released within the grace, or the whole fleet above MaxTiles tiles.
+// released within the grace, or the whole fleet above MaxFilters filters.
 func (d *Demand) Wanted() []string {
 	now := d.clock()
 	d.mu.Lock()
@@ -88,13 +91,7 @@ func (d *Demand) Wanted() []string {
 	keepRecent(wanted, d.leaseEnds, now)
 	keepRecent(wanted, d.releasedAt, now)
 
-	tiles := 0
-	for f := range wanted {
-		if isTile(f) {
-			tiles++
-		}
-	}
-	if tiles > MaxTiles {
+	if wanted[WholeFleet] || len(wanted) > MaxFilters {
 		return []string{WholeFleet}
 	}
 	out := make([]string, 0, len(wanted))
@@ -115,8 +112,4 @@ func keepRecent(wanted map[string]bool, ended map[string]time.Time, now time.Tim
 			delete(ended, f)
 		}
 	}
-}
-
-func isTile(filter string) bool {
-	return !strings.HasPrefix(filter, "/mobile_armada/+/") && filter != WholeFleet
 }

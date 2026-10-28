@@ -1,6 +1,7 @@
 package mqttfeed_test
 
 import (
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -126,8 +127,8 @@ func TestDemandWholeFleetAboveThreshold(t *testing.T) {
 	clock := newFakeClock()
 	d := mqttfeed.NewDemand(clock.Now)
 	city := geo.BBox{West: 106.6, South: -6.4, East: 107.1, North: -5.9}
-	if n := len(mqttfeed.TileFilters(city)); n <= mqttfeed.MaxTiles {
-		t.Fatalf("test area has %d tiles, want more than %d", n, mqttfeed.MaxTiles)
+	if n := len(mqttfeed.TileFilters(city)); n <= mqttfeed.MaxFilters {
+		t.Fatalf("test area has %d tiles, want more than %d", n, mqttfeed.MaxFilters)
 	}
 	d.Hold("a", mqttfeed.Interest{Areas: []geo.BBox{city}, RouteCodes: []string{"1"}})
 	want := []string{mqttfeed.WholeFleet}
@@ -142,6 +143,35 @@ func TestDemandWholeFleetAboveThreshold(t *testing.T) {
 	clock.advanceTo(31 * time.Second)
 	if got := d.Wanted(); len(got) != 0 {
 		t.Errorf("Wanted 31 s after release = %v, want empty", got)
+	}
+}
+
+func TestDemandWholeFleetAboveFilterCap(t *testing.T) {
+	d := mqttfeed.NewDemand(newFakeClock().Now)
+	for n := range mqttfeed.MaxFilters + 1 {
+		d.Touch(mqttfeed.Interest{FleetNumbers: []string{fmt.Sprintf("X%d", n)}})
+	}
+	if got, want := d.Wanted(), []string{mqttfeed.WholeFleet}; !slices.Equal(got, want) {
+		t.Errorf("Wanted after %d bus filters = %d filters, want %v", mqttfeed.MaxFilters+1, len(got), want)
+	}
+}
+
+// Many large distinct areas, as from clients panning a zoomed-out map, must
+// not pile up per-tile state behind the lock every request waits on.
+func TestDemandLargeAreasStayCheap(t *testing.T) {
+	d := mqttfeed.NewDemand(newFakeClock().Now)
+	start := time.Now()
+	for n := range 200 {
+		west := 100 + float64(n)*0.05
+		d.Touch(mqttfeed.Interest{Areas: []geo.BBox{{West: west, South: -6.9, East: west + 1, North: -5.9}}})
+	}
+	d.Hold("a", mqttfeed.Interest{Areas: []geo.BBox{{West: 106, South: -6.9, East: 107, North: -5.9}}})
+	d.Hold("a", mqttfeed.Interest{Areas: []geo.BBox{{West: 106.1, South: -6.9, East: 107.1, North: -5.9}}})
+	if got, want := d.Wanted(), []string{mqttfeed.WholeFleet}; !slices.Equal(got, want) {
+		t.Errorf("Wanted = %d filters, want %v", len(got), want)
+	}
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Errorf("200 large touches, two holds and Wanted took %v, want well under 200ms", elapsed)
 	}
 }
 

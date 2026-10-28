@@ -198,12 +198,16 @@ func (f *Feed) onConnect(mqtt.Client) {
 // sync subscribes what demand wants and the broker lacks, then unsubscribes
 // what is no longer wanted, so a switch to the whole fleet has no gap.
 func (f *Feed) sync(c mqtt.Client) {
-	f.mu.Lock()
-	connected, connection := f.status.Connected, f.connections
-	f.mu.Unlock()
-	if !connected {
+	// Asked every tick, so expired demand is forgotten while offline too.
+	demanded := f.demand.Wanted()
+	// The client's own state, because the lost and connect handlers run in
+	// separate goroutines and can leave status.Connected behind.
+	if !c.IsConnectionOpen() {
 		return
 	}
+	f.mu.Lock()
+	connection := f.connections
+	f.mu.Unlock()
 	if connection != f.syncedConnection {
 		f.syncedConnection = connection
 		f.subscribed, f.refused = map[string]bool{}, map[string]bool{}
@@ -211,7 +215,7 @@ func (f *Feed) sync(c mqtt.Client) {
 
 	wanted := map[string]bool{}
 	var add []string
-	for _, filter := range f.demand.Wanted() {
+	for _, filter := range demanded {
 		wanted[filter] = true
 		if !f.subscribed[filter] && !f.refused[filter] {
 			add = append(add, filter)

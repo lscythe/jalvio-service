@@ -625,7 +625,7 @@ components:
               description: Broker filters currently subscribed for what clients watch.
             wholeFleet:
               type: boolean
-              description: The whole fleet is subscribed because clients watch more than 1500 tiles.
+              description: The whole fleet is subscribed because clients watch more than 1500 broker filters (map tiles, routes and buses together).
         stopFacilities:
           type: object
           additionalProperties: false
