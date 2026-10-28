@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -76,7 +77,9 @@ type serviceStatus struct {
 		Version string `json:"version"`
 	} `json:"catalog"`
 	Feed struct {
-		State string `json:"state"`
+		State      string `json:"state"`
+		Filters    *int   `json:"filters"`
+		WholeFleet *bool  `json:"wholeFleet"`
 	} `json:"feed"`
 	StopFacilities struct {
 		State string `json:"state"`
@@ -148,6 +151,9 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 	getJSON(t, base+"/v1/catalog", &catalog)
 	if catalog.FeedVersion != status.Catalog.Version {
 		t.Errorf("catalog feedVersion = %q, want %q", catalog.FeedVersion, status.Catalog.Version)
+	}
+	if code := get(t, base+"/v1/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
+		t.Errorf("buses with the feed disabled: status %d, want %d", code, http.StatusOK)
 	}
 
 	var departures struct {
@@ -228,6 +234,12 @@ func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
 	getJSON(t, base+"/v1/status", &status)
 	if status.Feed.State != "disconnected" {
 		t.Errorf("feed state = %q, want disconnected", status.Feed.State)
+	}
+	if f := status.Feed; f.Filters == nil || *f.Filters != 0 || f.WholeFleet == nil || *f.WholeFleet {
+		t.Errorf("feed filters = %v, wholeFleet = %v, want 0 and false", f.Filters, f.WholeFleet)
+	}
+	if code := get(t, base+"/v1/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
+		t.Errorf("buses with the feed configured: status %d, want %d", code, http.StatusOK)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "mqtt-client-id")); err != nil {
 		t.Errorf("client ID not stored: %v", err)
@@ -335,6 +347,9 @@ func get(t *testing.T, url string) int {
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)
 	}
+	// Draining lets the client reuse the connection. Otherwise it may dial
+	// one it never uses, which holds up the service's shutdown for 5 s.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 	return resp.StatusCode
 }

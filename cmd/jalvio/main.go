@@ -96,19 +96,24 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 
 	buses := fleet.New()
 	var feed httpapi.Feed
+	// Assigned only with a live feed, so a disabled feed leaves a nil
+	// interface rather than a typed nil.
+	var demand httpapi.Demand
 	var live *mqttfeed.Feed
 	if cfg.MQTTURL != "" {
 		clientID, err := mqttfeed.LoadOrCreateClientID(filepath.Join(cfg.DataDir, "mqtt-client-id"), cfg.MQTTClientIDPrefix)
 		if err != nil {
 			return errors.Join(err, ln.Close())
 		}
+		watched := mqttfeed.NewDemand(time.Now)
 		live = mqttfeed.New(mqttfeed.Config{
 			URL:           cfg.MQTTURL,
 			TLSServerName: cfg.MQTTServerName,
 			DialAddress:   cfg.MQTTDialAddress,
 			ClientID:      clientID,
-		}, buses, mqttfeed.NewDemand(time.Now), logger)
+		}, buses, watched, logger)
 		feed = live
+		demand = watched
 	}
 
 	var stopInfo httpapi.StopInfo
@@ -160,6 +165,7 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 		Catalogs: catalogs,
 		Feed:     feed,
 		Buses:    buses,
+		Demand:   demand,
 		StopInfo: stopInfo,
 		Places:   placeSearch,
 		Live:     httpapi.LiveConfig{MaxConnections: cfg.MaxLiveConnections, BrowserOrigins: cfg.BrowserOrigins},
