@@ -87,6 +87,8 @@ type feedStatus struct {
 	Malformed     int64            `json:"malformed"`
 	Rejected      map[string]int64 `json:"rejected,omitempty"`
 	Buses         int              `json:"buses"`
+	Filters       int              `json:"filters"`
+	WholeFleet    bool             `json:"wholeFleet"`
 }
 
 type stopsStatus struct {
@@ -159,6 +161,8 @@ func newFeedStatus(feed Feed, buses int) feedStatus {
 		Malformed:     st.Malformed,
 		Rejected:      st.Rejected,
 		Buses:         buses,
+		Filters:       st.Filters,
+		WholeFleet:    st.WholeFleet,
 	}
 }
 
