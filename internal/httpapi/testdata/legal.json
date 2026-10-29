@@ -1,0 +1,34 @@
+{
+  "terms": {
+    "updated": "2026-10-29",
+    "en": {
+      "title": "Terms",
+      "summary": [{"icon": "gavel", "text": "Use it kindly."}],
+      "sections": [{"id": "t1", "title": "Using the app", "text": "It is free to use."}]
+    },
+    "id": {
+      "title": "Ketentuan",
+      "summary": [],
+      "sections": [{"id": "t1", "title": "Memakai aplikasi", "text": "Gratis."}]
+    }
+  },
+  "privacy": {
+    "updated": "2026-10-28",
+    "en": {
+      "title": "Privacy",
+      "sections": [
+        {
+          "id": "collect",
+          "title": "What we collect",
+          "rows": [{"icon": "my_location", "title": "Location", "description": "Only while the app is open.", "tag": "While using"}]
+        },
+        {
+          "id": "choices",
+          "title": "Your choices",
+          "text": "Turn analytics off in Settings.",
+          "rows": [{"title": "Crash reports", "description": "Off unless you turn them on."}]
+        }
+      ]
+    }
+  }
+}

@@ -100,6 +100,9 @@ func startService(t *testing.T, ctx context.Context, cfg config.Config) (base, d
 
 	dataDir = filepath.Join(t.TempDir(), "data")
 	cfg.DataDir = dataDir
+	if cfg.LegalFile == "" {
+		cfg.LegalFile = filepath.Join(dataDir, "legal.json")
+	}
 	cfg.GTFSURL = feedServer.URL
 	cfg.GTFSRefresh = time.Hour
 	cfg.StopAPIAppVersion = "1.0.0"
@@ -283,6 +286,55 @@ func TestRunServiceSyncsStopFacilities(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dataDir, name)); err != nil {
 			t.Errorf("%s not stored: %v", name, err)
 		}
+	}
+}
+
+func TestRunServicePublishesTheOwnersLegalDocuments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legal.json")
+	content := `{"terms": {"updated": "2026-10-29", "en": {"title": "Terms", "summary": [], ` +
+		`"sections": [{"id": "t1", "title": "Using the app", "text": "It is free to use."}]}}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base, _ := startService(t, t.Context(), config.Config{LegalFile: path})
+
+	var terms struct {
+		Title   string `json:"title"`
+		Updated string `json:"updated"`
+	}
+	getJSON(t, base+"/v1/legal/terms", &terms)
+	if terms.Title != "Terms" || terms.Updated != "2026-10-29" {
+		t.Errorf("terms = %+v, want the owner's terms", terms)
+	}
+	if code := get(t, base+"/v1/legal/privacy"); code != http.StatusNotFound {
+		t.Errorf("unpublished privacy policy: status %d, want %d", code, http.StatusNotFound)
+	}
+}
+
+func TestRunServicePublishesNoLegalDocumentsWithoutAFile(t *testing.T) {
+	base, _ := startService(t, t.Context(), config.Config{})
+	if code := get(t, base+"/v1/legal/terms"); code != http.StatusNotFound {
+		t.Errorf("terms without a legal file: status %d, want %d", code, http.StatusNotFound)
+	}
+}
+
+func TestRunServiceRejectsAnInvalidLegalFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legal.json")
+	if err := os.WriteFile(path, []byte(`{"terms": {"updated": "soon"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{
+		DataDir:   filepath.Join(t.TempDir(), "data"),
+		GTFSURL:   "http://127.0.0.1:1/feed.zip",
+		LegalFile: path,
+	}
+	// Bounded, since a service that accepted the file would serve until
+	// cancelled.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	err := runService(ctx, cfg, listen(t), discard)
+	if err == nil || !strings.Contains(err.Error(), "terms.updated") {
+		t.Errorf("runService = %v, want an error about terms.updated", err)
 	}
 }
 

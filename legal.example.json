@@ -1,0 +1,53 @@
+{
+  "terms": {
+    "updated": "2026-10-29",
+    "en": {
+      "title": "Terms",
+      "summary": [
+        {"icon": "volunteer_activism", "text": "Jalvio is free."},
+        {"icon": "schedule", "text": "Bus times are live estimates, not promises."},
+        {"icon": "groups", "text": "Be honest and kind in reports."},
+        {"icon": "notifications", "text": "We tell you before anything changes."}
+      ],
+      "sections": [
+        {"id": "t1", "title": "Using Jalvio", "text": "Jalvio is free to use. You need to be 13 or older. Please do not use it while driving."},
+        {"id": "t2", "title": "Arrival times are estimates", "text": "Bus times come from live GPS and can be wrong. Leave a little extra time for anything important."},
+        {"id": "t3", "title": "Rider reports", "text": "Report what you see, honestly. Do not post photos of people or anyone's personal details. We remove reports that break these rules."},
+        {"id": "t4", "title": "Changes and contact", "text": "If these terms change, we will tell you in the app first. Questions go to help@jalvio.app."}
+      ]
+    }
+  },
+  "privacy": {
+    "updated": "2026-10-29",
+    "en": {
+      "title": "Privacy",
+      "summary": [
+        {"icon": "lock", "text": "Your trips and places stay on your phone unless you back up with Google."},
+        {"icon": "visibility_off", "text": "Reports can be anonymous."},
+        {"icon": "monitoring", "text": "Analytics and crash reports never include your name or location, and you can turn them off."},
+        {"icon": "block", "text": "No ads, and we never sell data."}
+      ],
+      "sections": [
+        {
+          "id": "collect",
+          "title": "What we collect",
+          "rows": [
+            {"icon": "my_location", "title": "Location", "description": "Only while the app is open, to find stops near you. Never in the background.", "tag": "While using"},
+            {"icon": "route", "title": "Trips and saved places", "description": "Kept on your phone. With a Google account, also in your Google backup."},
+            {"icon": "groups", "title": "Rider reports", "description": "Public to other riders. Your name shows only if you choose.", "tag": "Public"}
+          ]
+        },
+        {
+          "id": "telemetry",
+          "title": "Telemetry",
+          "rows": [
+            {"icon": "monitoring", "title": "Usage analytics", "description": "Which screens you open and which buttons you tap, with a random ID. No names, places or locations. Kept for 14 months.", "tag": "Off"},
+            {"icon": "bug_report", "title": "Crash reports", "description": "What the app was doing when it crashed, your phone model and Android version. Kept for 90 days.", "tag": "Off"}
+          ]
+        },
+        {"id": "never", "title": "What we never do", "text": "We do not sell your data, show ads, track you outside the app, or share where you live or work. Not with transit agencies, and not with anyone else."},
+        {"id": "choices", "title": "Your choices", "text": "You can turn analytics and crash reports off in Settings at any time. Export my data gives you everything we hold. Delete account removes it from your phone and from Google backup."}
+      ]
+    }
+  }
+}
