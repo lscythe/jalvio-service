@@ -266,18 +266,18 @@ func TestLiveStreamsSubscribedBuses(t *testing.T) {
 	}
 
 	subscribe(t, conn, `{"type":"subscribe","bbox":[106.82,-6.2,106.83,-6.18]}`)
-	if buses, _ := readBuses(t, conn, "snapshot"); !slices.Equal(buses, []string{"TJ-001", "XX-001"}) {
-		t.Errorf("snapshot = %v, want [TJ-001 XX-001]", buses)
+	if buses, _ := readBuses(t, conn, "snapshot"); !slices.Equal(buses, []string{"TST-001", "XX-001"}) {
+		t.Errorf("snapshot = %v, want [TST-001 XX-001]", buses)
 	}
 
 	later := now.Add(time.Second)
-	moveBus(f, "TJ-001", later, -6.3, 106.823)  // leaves the box
-	moveBus(f, "TJ-002", later, -6.19, 106.825) // enters it
-	moveBus(f, "TJ-003", later, -6.25, 106.80)  // moves outside it
+	moveBus(f, "TST-001", later, -6.3, 106.823)  // leaves the box
+	moveBus(f, "TST-002", later, -6.19, 106.825) // enters it
+	moveBus(f, "TST-003", later, -6.25, 106.80)  // moves outside it
 	f.Flush()
 	buses, removed := readBuses(t, conn, "update")
-	if !slices.Equal(buses, []string{"TJ-002"}) || !slices.Equal(removed, []string{"TJ-001"}) {
-		t.Errorf("update = %v removed %v, want [TJ-002] removed [TJ-001]", buses, removed)
+	if !slices.Equal(buses, []string{"TST-002"}) || !slices.Equal(removed, []string{"TST-001"}) {
+		t.Errorf("update = %v removed %v, want [TST-002] removed [TST-001]", buses, removed)
 	}
 
 	subscribe(t, conn, `{"type":"subscribe","routes":["JAK.18","NOPE"]}`)
@@ -298,8 +298,8 @@ func TestLiveSubscribesToRoutesInABox(t *testing.T) {
 	readFrame(t, conn)
 
 	subscribe(t, conn, `{"type":"subscribe","bbox":[106.82,-6.2,106.83,-6.18],"routes":["1"]}`)
-	if buses, _ := readBuses(t, conn, "snapshot"); !slices.Equal(buses, []string{"TJ-001"}) {
-		t.Errorf("snapshot = %v, want [TJ-001]", buses)
+	if buses, _ := readBuses(t, conn, "snapshot"); !slices.Equal(buses, []string{"TST-001"}) {
+		t.Errorf("snapshot = %v, want [TST-001]", buses)
 	}
 	subscribe(t, conn, `{"type":"subscribe","routes":["NOPE"]}`)
 	if buses, _ := readBuses(t, conn, "snapshot"); len(buses) != 0 {
@@ -314,7 +314,7 @@ func TestLiveSkipsChangesOutsideTheSubscription(t *testing.T) {
 	subscribe(t, conn, `{"type":"subscribe","routes":["JAK.18"]}`)
 	readBuses(t, conn, "snapshot")
 
-	moveBus(f, "TJ-001", now.Add(time.Second), -6.2, 106.82)
+	moveBus(f, "TST-001", now.Add(time.Second), -6.2, 106.82)
 	f.Flush()
 	moveBus(f, "MT-001", now.Add(time.Second), -6.26, 106.85)
 	f.Flush()
@@ -353,7 +353,7 @@ func TestLiveClosesOnBadSubscribes(t *testing.T) {
 	}{
 		{"not json", []string{`subscribe`}, websocket.ClosePolicyViolation, "subscribe"},
 		{"other type", []string{`{"type":"unsubscribe"}`}, websocket.ClosePolicyViolation, "subscribe"},
-		{"unknown field", []string{`{"type":"subscribe","fleetNumber":"TJ-001"}`}, websocket.ClosePolicyViolation, "subscribe"},
+		{"unknown field", []string{`{"type":"subscribe","fleetNumber":"TST-001"}`}, websocket.ClosePolicyViolation, "subscribe"},
 		{"no filter", []string{`{"type":"subscribe"}`}, websocket.ClosePolicyViolation, "bbox or routes"},
 		{"short bbox", []string{`{"type":"subscribe","bbox":[106.8,-6.2,106.9]}`}, websocket.ClosePolicyViolation, "bbox"},
 		{"inverted bbox", []string{`{"type":"subscribe","bbox":[106.9,-6.2,106.8,-6.1]}`}, websocket.ClosePolicyViolation, "bbox"},
@@ -384,7 +384,7 @@ type laggingBuses struct{ *fleet.Fleet }
 func (l laggingBuses) Subscribe() *fleet.Subscription {
 	sub := l.Fleet.Subscribe()
 	for i := range fleet.SubscriberBuffer + 1 {
-		moveBus(l.Fleet, "TJ-001", now.Add(time.Duration(i+1)*time.Second), -6.19, 106.823)
+		moveBus(l.Fleet, "TST-001", now.Add(time.Duration(i+1)*time.Second), -6.19, 106.823)
 		l.Flush()
 	}
 	return sub
