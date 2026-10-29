@@ -26,11 +26,11 @@ type liveBus struct {
 func liveFleet() *fleet.Fleet {
 	f := fleet.New()
 	for _, b := range []liveBus{
-		{"TJ-001", "1", "1-R01", "Kota", -6.19, 106.823, map[string]int{"H00002P": 3, "H00003P": 9}},
-		{"TJ-002", "1", "1-R01", "Kota", -6.22, 106.81, map[string]int{"H00002P": 12, "H00003P": 18}},
-		{"TJ-003", "1", "1-R01", "Kota", -6.24, 106.80, map[string]int{"H00002P": 20}},
-		{"TJ-004", "1", "1-R01", "Kota", -6.243, 106.801, map[string]int{"H00002P": 25}},
-		{"TJ-005", "1", "1-R02", "Blok M", -6.14, 106.813, map[string]int{"H00002P": 5}},
+		{"TST-001", "1", "1-R01", "Kota", -6.19, 106.823, map[string]int{"H00002P": 3, "H00003P": 9}},
+		{"TST-002", "1", "1-R01", "Kota", -6.22, 106.81, map[string]int{"H00002P": 12, "H00003P": 18}},
+		{"TST-003", "1", "1-R01", "Kota", -6.24, 106.80, map[string]int{"H00002P": 20}},
+		{"TST-004", "1", "1-R01", "Kota", -6.243, 106.801, map[string]int{"H00002P": 25}},
+		{"TST-005", "1", "1-R02", "Blok M", -6.14, 106.813, map[string]int{"H00002P": 5}},
 	} {
 		f.Apply(fleet.Update{
 			Plate: b.fleetNumber, RouteCode: b.route, TripID: b.trip, Headsign: b.headsign,
@@ -120,11 +120,11 @@ func TestDepartures(t *testing.T) {
 	const want = `{"feed":"disabled","stops":[` +
 		`{"stopId":"G00002","departures":[` +
 		`{"routeId":"1","routeCode":"1","headsign":"Kota","buses":[` +
-		`{"fleetNumber":"TJ-001","patternId":"1-R01","minutes":3,"observedAt":"2026-10-22T01:00:00Z","stale":false},` +
-		`{"fleetNumber":"TJ-002","patternId":"1-R01","minutes":12,"observedAt":"2026-10-22T01:00:00Z","stale":false},` +
-		`{"fleetNumber":"TJ-003","patternId":"1-R01","minutes":20,"observedAt":"2026-10-22T01:00:00Z","stale":false}]},` +
+		`{"fleetNumber":"TST-001","patternId":"1-R01","minutes":3,"observedAt":"2026-10-22T01:00:00Z","stale":false},` +
+		`{"fleetNumber":"TST-002","patternId":"1-R01","minutes":12,"observedAt":"2026-10-22T01:00:00Z","stale":false},` +
+		`{"fleetNumber":"TST-003","patternId":"1-R01","minutes":20,"observedAt":"2026-10-22T01:00:00Z","stale":false}]},` +
 		`{"routeId":"1","routeCode":"1","headsign":"Blok M","buses":[` +
-		`{"fleetNumber":"TJ-005","patternId":"1-R02","minutes":5,"observedAt":"2026-10-22T01:00:00Z","stale":false}]},` +
+		`{"fleetNumber":"TST-005","patternId":"1-R02","minutes":5,"observedAt":"2026-10-22T01:00:00Z","stale":false}]},` +
 		`{"routeCode":"51ST","headsign":"Senayan","buses":[` +
 		`{"fleetNumber":"XX-001","patternId":"51ST-L01","minutes":7,"observedAt":"2026-10-22T00:58:00Z","stale":true}]}]},` +
 		`{"stopId":"B00003P","departures":[` +
@@ -143,7 +143,7 @@ func TestLiveResponsesReportTheFeed(t *testing.T) {
 	d.Feed = fakeFeed{mqttfeed.Status{Connected: true}}
 	h := httpapi.New(d)
 
-	for _, target := range []string{"/v1/departures?stops=G00002", "/v1/buses?routes=1", "/v1/buses/TJ-001"} {
+	for _, target := range []string{"/v1/departures?stops=G00002", "/v1/buses?routes=1", "/v1/buses/TST-001"} {
 		if body := get(t, h, target, nil).Body.String(); !strings.HasPrefix(body, `{"feed":"connected",`) {
 			t.Errorf("%s: body = %s, want feed connected first", target, body)
 		}
@@ -156,10 +156,10 @@ func TestBuses(t *testing.T) {
 		want  []string
 	}{
 		{"routes=JAK.18", []string{"MT-001"}},
-		{"routes=1,JAK.18", []string{"MT-001", "TJ-001", "TJ-002", "TJ-003", "TJ-004", "TJ-005"}},
+		{"routes=1,JAK.18", []string{"MT-001", "TST-001", "TST-002", "TST-003", "TST-004", "TST-005"}},
 		{"routes=NOPE", nil},
-		{"bbox=106.82,-6.2,106.83,-6.18", []string{"TJ-001", "XX-001"}},
-		{"bbox=106.82,-6.2,106.83,-6.18&routes=1", []string{"TJ-001"}},
+		{"bbox=106.82,-6.2,106.83,-6.18", []string{"TST-001", "XX-001"}},
+		{"bbox=106.82,-6.2,106.83,-6.18&routes=1", []string{"TST-001"}},
 	}
 	h := liveHandler(t)
 	for _, tt := range tests {
@@ -200,8 +200,8 @@ func TestBus(t *testing.T) {
 				`"observedAt":"2026-10-22T00:58:00Z","stale":true},"upcoming":[{"stopId":"H00002P","minutes":7}]}`,
 		},
 		{
-			"TJ-001",
-			`{"feed":"disabled","bus":{"fleetNumber":"TJ-001","routeId":"1","routeCode":"1","patternId":"1-R01","headsign":"Kota",` +
+			"TST-001",
+			`{"feed":"disabled","bus":{"fleetNumber":"TST-001","routeId":"1","routeCode":"1","patternId":"1-R01","headsign":"Kota",` +
 				`"class":"BRT","vehicleType":"Maxi Bus","position":{"lat":-6.19,"lng":106.823},"bearing":0,` +
 				`"observedAt":"2026-10-22T01:00:00Z","stale":false},"upcoming":[{"stopId":"H00002P","minutes":3},{"stopId":"H00003P","minutes":9}]}`,
 		},
@@ -266,7 +266,7 @@ func TestLiveBeforeTheFirstFeed(t *testing.T) {
 	d := deps(true)
 	d.Buses = liveFleet()
 	h := httpapi.New(d)
-	for _, target := range []string{"/v1/departures?stops=G00002", "/v1/buses?routes=1", "/v1/buses/TJ-001"} {
+	for _, target := range []string{"/v1/departures?stops=G00002", "/v1/buses?routes=1", "/v1/buses/TST-001"} {
 		if rec := get(t, h, target, nil); rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("%s: status = %d, want %d", target, rec.Code, http.StatusServiceUnavailable)
 		}
