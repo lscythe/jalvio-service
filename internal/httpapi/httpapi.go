@@ -10,6 +10,7 @@ import (
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/fleet"
 	"github.com/lscythe/jalvio-service/internal/geo"
+	"github.com/lscythe/jalvio-service/internal/legal"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 	"github.com/lscythe/jalvio-service/internal/places"
 	"github.com/lscythe/jalvio-service/internal/stopinfo"
@@ -68,7 +69,9 @@ type Deps struct {
 	StopInfo StopInfo
 	// Places is nil when place search is disabled.
 	Places Places
-	Live   LiveConfig
+	// Legal is the zero value when the owner publishes no documents.
+	Legal legal.Documents
+	Live  LiveConfig
 	// Done closes the live streams, which server shutdown leaves open.
 	Done <-chan struct{}
 }
@@ -140,6 +143,7 @@ func New(d Deps) http.Handler {
 	p := &placesHandlers{places: d.Places}
 	mux.HandleFunc("GET /v1/places", p.serveSearch)
 	mux.HandleFunc("GET /v1/places/reverse", p.serveReverse)
+	mux.HandleFunc("GET /v1/legal/{document}", (&legalDocuments{docs: d.Legal}).serve)
 	return problemFallback(mux)
 }
 

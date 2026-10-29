@@ -46,9 +46,20 @@ func TestLoadDefaults(t *testing.T) {
 		StopInfoSyncAt:          3 * time.Hour,
 		MaxLiveConnections:      2000,
 		PlacesRequestsPerMinute: 60,
+		LegalFile:               "data/legal.json",
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)
+	}
+}
+
+func TestLegalFileDefaultsToTheDataDir(t *testing.T) {
+	cfg, err := config.Load(env(map[string]string{"JALVIO_DATA_DIR": "/srv/jalvio"}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LegalFile != "/srv/jalvio/legal.json" {
+		t.Errorf("LegalFile = %q, want /srv/jalvio/legal.json", cfg.LegalFile)
 	}
 }
 
@@ -69,6 +80,7 @@ func TestLoadOverrides(t *testing.T) {
 		"PHOTON_URL":                 "https://places.example.com",
 		"PHOTON_USER_AGENT":          "jalvio-test (ops@example.com)",
 		"PLACES_REQUESTS_PER_MINUTE": "30",
+		"LEGAL_FILE":                 "/etc/jalvio/legal.json",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -90,6 +102,7 @@ func TestLoadOverrides(t *testing.T) {
 		PhotonURL:               "https://places.example.com",
 		PhotonUserAgent:         "jalvio-test (ops@example.com)",
 		PlacesRequestsPerMinute: 30,
+		LegalFile:               "/etc/jalvio/legal.json",
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load = %+v, want %+v", cfg, want)

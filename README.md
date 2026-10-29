@@ -30,6 +30,7 @@ go run ./cmd/jalvio
 | `PLACES_REQUESTS_PER_MINUTE` | `60`      | Geocoder calls allowed per minute; cached lookups are free      |
 | `MAX_LIVE_CONNECTIONS`       | `2000`    | Open `/v1/live` connections allowed at once                     |
 | `BROWSER_ORIGINS`            | empty     | Space-separated origins allowed on `/v1/live`; empty: apps only |
+| `LEGAL_FILE`                 | data dir  | Terms and privacy policy to publish; default `legal.json`       |
 | `JALVIO_LISTEN`              | `:8080`   | HTTP listen address                                             |
 | `JALVIO_DATA_DIR`            | `./data`  | Stored feed, client and device IDs, and snapshots               |
 
@@ -60,8 +61,11 @@ The image is distroless, runs as a non-root user, and keeps its state in the `/d
 | `/v1/live`           | WebSocket for the map: a snapshot per subscribe (bounding box, routes), then 1 s updates   |
 | `/v1/places`         | Destinations matching a query, in the area the network serves, with OSM attribution        |
 | `/v1/places/reverse` | The address or place at a point                                                            |
+| `/v1/legal/{name}`   | The owner's `terms` or `privacy` policy, in English or Indonesian (`?lang=id`)             |
 
-[`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. [`api/live.schema.json`](api/live.schema.json) does the same for `/v1/live` frames. The catalog documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
+[`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. [`api/live.schema.json`](api/live.schema.json) does the same for `/v1/live` frames. The catalog and legal documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
+
+The legal documents belong to whoever runs the instance. Write them in `LEGAL_FILE`, starting from [`legal.example.json`](legal.example.json): each document has an `updated` date, an English version, and optionally an Indonesian one, which falls back to English when missing. The file is read at startup, so restart to publish a change; an invalid file stops startup with the field at fault, and without a file both documents return `404`.
 
 ## Develop
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +35,9 @@ type Config struct {
 	PhotonURL               string
 	PhotonUserAgent         string
 	PlacesRequestsPerMinute int
+	// LegalFile holds the owner's terms and privacy policy; when it does not
+	// exist, none are published.
+	LegalFile string
 }
 
 // ListenAddress returns JALVIO_LISTEN or its default, without validating it.
@@ -118,6 +122,8 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("PLACES_REQUESTS_PER_MINUTE: %q is not a positive integer", getenv("PLACES_REQUESTS_PER_MINUTE"))
 	}
 	cfg.PlacesRequestsPerMinute = perMinute
+
+	cfg.LegalFile = valueOr(getenv("LEGAL_FILE"), filepath.Join(cfg.DataDir, "legal.json"))
 	return cfg, nil
 }
 

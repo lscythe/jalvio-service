@@ -312,6 +312,59 @@ paths:
         "503":
           $ref: "#/components/responses/PlacesDisabled"
 
+  /v1/legal/{document}:
+    get:
+      operationId: getLegalDocument
+      summary: The terms or the privacy policy, as this instance's owner publishes them
+      description: |
+        Changes only when the owner publishes a new version. Send the stored
+        ETag in `If-None-Match`. Keep the `updated` date the rider last saw,
+        and tell them about the change when it differs.
+      parameters:
+        - name: document
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [terms, privacy]
+        - name: lang
+          in: query
+          required: false
+          description: "`en` (the default) or `id`. A document without that translation is served in English."
+          schema:
+            type: string
+            enum: [en, id]
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The document.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Content-Language:
+              required: true
+              description: The language served, as in `language`.
+              schema:
+                type: string
+                enum: [en, id]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegalDocument"
+        "304":
+          description: The stored copy is current. No body.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The document is unknown, or this instance's owner has not published it.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
 components:
   parameters:
     IfNoneMatch:
@@ -881,3 +934,77 @@ components:
               polyline:
                 type: string
                 description: Google encoded polyline, five decimals.
+
+    LegalDocument:
+      type: object
+      additionalProperties: false
+      required: [document, language, updated, title, summary, sections]
+      properties:
+        document:
+          type: string
+          enum: [terms, privacy]
+        language:
+          type: string
+          enum: [en, id]
+          description: The language served; English when the requested translation is missing.
+        updated:
+          type: string
+          format: date
+          description: The owner's date for this version, shared by its translations.
+        title:
+          type: string
+        summary:
+          type: array
+          description: The short version, shown before the sections.
+          items:
+            $ref: "#/components/schemas/LegalPoint"
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegalSection"
+
+    LegalPoint:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        icon:
+          type: string
+          description: An icon name for the app to look up, such as `lock`.
+        text:
+          type: string
+
+    LegalSection:
+      type: object
+      additionalProperties: false
+      description: Has `text`, `rows`, or both.
+      required: [id, title]
+      properties:
+        id:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9_-]*$"
+          description: Stable within the document, so other screens can link to the section.
+        title:
+          type: string
+        text:
+          type: string
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegalRow"
+
+    LegalRow:
+      type: object
+      additionalProperties: false
+      required: [title, description]
+      properties:
+        icon:
+          type: string
+          description: An icon name for the app to look up, such as `my_location`.
+        title:
+          type: string
+        description:
+          type: string
+        tag:
+          type: string
+          description: A short label such as `While using`. The app may show the rider's own setting instead.

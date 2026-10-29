@@ -21,6 +21,7 @@ import (
 	"github.com/lscythe/jalvio-service/internal/fleet"
 	"github.com/lscythe/jalvio-service/internal/geo"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
+	"github.com/lscythe/jalvio-service/internal/legal"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 	"github.com/lscythe/jalvio-service/internal/places"
 	"github.com/lscythe/jalvio-service/internal/stopapi"
@@ -86,6 +87,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, logger 
 
 func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger *slog.Logger) error {
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+		return errors.Join(err, ln.Close())
+	}
+	legalDocs, err := legal.Load(cfg.LegalFile)
+	if err != nil {
 		return errors.Join(err, ln.Close())
 	}
 	fetcher := catalog.NewHTTPFetcher(&http.Client{Timeout: feedFetchTimeout}, cfg.GTFSURL, "jalvio-service/"+version)
@@ -168,6 +173,7 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 		Demand:   demand,
 		StopInfo: stopInfo,
 		Places:   placeSearch,
+		Legal:    legalDocs,
 		Live:     httpapi.LiveConfig{MaxConnections: cfg.MaxLiveConnections, BrowserOrigins: cfg.BrowserOrigins},
 		Done:     ctx.Done(),
 	})
