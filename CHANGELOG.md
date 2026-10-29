@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/lscythe/jalvio-service/compare/v0.4.1...v0.5.0) (2026-10-29)
+
+
+### Features
+
+* **status:** show the live feed delay ([#39](https://github.com/lscythe/jalvio-service/issues/39)) ([4e0d281](https://github.com/lscythe/jalvio-service/commit/4e0d281fef2e7404d50a116235b59181035ef2e7))
+* subscribe only to what clients watch ([#41](https://github.com/lscythe/jalvio-service/issues/41)) ([62190cc](https://github.com/lscythe/jalvio-service/commit/62190cc10964f10d74d166e3ea9ec5dc2b755a97))
+
+
+### Bug Fixes
+
+* **mqttfeed:** keep filter status current and stop promptly during a sync ([#43](https://github.com/lscythe/jalvio-service/issues/43)) ([f10969e](https://github.com/lscythe/jalvio-service/commit/f10969e7b4417cdbe335ff12648ca48cb1eaaf52))
+* **mqttfeed:** wait longer for ping replies and log failed connects ([#42](https://github.com/lscythe/jalvio-service/issues/42)) ([6fc9a55](https://github.com/lscythe/jalvio-service/commit/6fc9a555df12c417def541a7fdc158e09bf5a270))
+
 ## [0.4.1](https://github.com/lscythe/jalvio-service/compare/v0.4.0...v0.4.1) (2026-10-27)
 
 
