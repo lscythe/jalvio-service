@@ -115,9 +115,14 @@ func (l *regionList) serve(w http.ResponseWriter, r *http.Request) {
 
 func (rh *regionHandlers) listItem() (regionItem, bool, error) {
 	r := rh.region
+	// One catalog describes the item, so a refresh mid-request cannot pair
+	// old bounds with the new version.
 	c := r.Catalogs.Current()
-	etag, ok, err := rh.docs.etag()
-	if err != nil || !ok || c == nil {
+	if c == nil {
+		return regionItem{}, false, nil
+	}
+	etag, err := rh.docs.etag(c)
+	if err != nil {
 		return regionItem{}, false, err
 	}
 	b := c.Bounds()

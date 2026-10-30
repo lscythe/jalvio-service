@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/stopinfo"
 )
 
@@ -23,34 +24,27 @@ type catalogDocuments struct {
 }
 
 func (d *catalogDocuments) serveCatalog(w http.ResponseWriter, r *http.Request) {
-	key, build, ok := d.catalogSource()
-	if !ok {
+	c := d.catalogs.Current()
+	if c == nil {
 		writeProblem(w, http.StatusServiceUnavailable)
 		return
 	}
+	key, build := d.catalogSource(c)
 	d.catalog.serve(w, r, key, build)
 }
 
-// etag is the ETag the catalog is served with, false before one loads.
-func (d *catalogDocuments) etag() (string, bool, error) {
-	key, build, ok := d.catalogSource()
-	if !ok {
-		return "", false, nil
-	}
+// etag is the ETag c is served with, alongside the current facilities.
+func (d *catalogDocuments) etag(c *catalog.Catalog) (string, error) {
+	key, build := d.catalogSource(c)
 	doc, err := d.catalog.get(key, build)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
-	return doc.etag, true, nil
+	return doc.etag, nil
 }
 
-// catalogSource returns the cache key and builder for the current catalog
-// with its facilities, false before a catalog loads.
-func (d *catalogDocuments) catalogSource() (string, func() any, bool) {
-	c := d.catalogs.Current()
-	if c == nil {
-		return "", nil, false
-	}
+// catalogSource returns the cache key and builder for c with its facilities.
+func (d *catalogDocuments) catalogSource(c *catalog.Catalog) (string, func() any) {
 	var snap *stopinfo.Snapshot
 	if d.stopInfo != nil {
 		snap = d.stopInfo.Current()
@@ -59,7 +53,7 @@ func (d *catalogDocuments) catalogSource() (string, func() any, bool) {
 	if snap != nil {
 		key += " " + snap.SyncedAt.Format(time.RFC3339Nano)
 	}
-	return key, func() any { return newCatalogResponse(c, snap) }, true
+	return key, func() any { return newCatalogResponse(c, snap) }
 }
 
 func (d *catalogDocuments) serveShapes(w http.ResponseWriter, r *http.Request) {

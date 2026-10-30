@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -144,6 +145,46 @@ func TestRegionListVersionMatchesTheCatalogETag(t *testing.T) {
 	}
 	if rec2.Header().Get("ETag") == rec.Header().Get("ETag") {
 		t.Error("the list's ETag did not change with the catalog")
+	}
+}
+
+// refreshingCatalogs publishes next right after its first Current call, as a
+// feed refresh landing in the middle of a request does.
+type refreshingCatalogs struct {
+	swappableCatalogs
+	next *catalog.Catalog
+	once sync.Once
+}
+
+func (r *refreshingCatalogs) Current() *catalog.Catalog {
+	c := r.swappableCatalogs.Current()
+	r.once.Do(func() { r.publish(r.next, startedAt.Add(time.Hour)) })
+	return c
+}
+
+func TestRegionListDescribesOneCatalogDuringARefresh(t *testing.T) {
+	stops, err := os.ReadFile("../catalog/testdata/feed/stops.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wider, err := catalog.Parse(catalogtest.Feed(t, map[string]string{
+		"stops.txt": string(stops) + "B00005P,,Far,,-6.5,106.5,1,,0,,,2,\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogs := &refreshingCatalogs{next: wider}
+	catalogs.publish(fixtureCatalog(t), startedAt)
+	d := twoRegions(t)
+	d.Regions[0].Catalogs = catalogs
+	h := httpapi.New(d)
+
+	list, _ := listRegions(t, h)
+	newETag := get(t, h, "/v1/regions/a/catalog", nil).Header().Get("ETag")
+	item := list.Regions[0]
+	if widerBounds, newVersion := item.Bounds.SouthWest.Lat == -6.5, item.Catalog.Version == newETag; widerBounds != newVersion {
+		t.Errorf("bounds south %v with version %s (refreshed catalog's ETag %s), want both from one catalog",
+			item.Bounds.SouthWest.Lat, item.Catalog.Version, newETag)
 	}
 }
 
