@@ -4,12 +4,12 @@
 //
 //	mise run live
 //
-// Each test reads the same environment as the service and skips when its
-// upstream is not configured. Output is counts only, never payloads.
+// Each test reads the same environment and regions file as the service, runs
+// once per configured region, and skips what is not configured. Output is
+// counts only, never payloads.
 package live_test
 
 import (
-	"cmp"
 	"context"
 	"log"
 	"log/slog"
@@ -28,6 +28,7 @@ import (
 	"github.com/lscythe/jalvio-service/internal/geo"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 	"github.com/lscythe/jalvio-service/internal/places"
+	"github.com/lscythe/jalvio-service/internal/regions"
 	"github.com/lscythe/jalvio-service/internal/stopapi"
 )
 
@@ -50,34 +51,65 @@ func require(t *testing.T, keys ...string) {
 	}
 }
 
-// feed downloads the GTFS feed once for every test that needs it.
-var feed = sync.OnceValues(func() (*catalog.Catalog, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	fetcher := catalog.NewHTTPFetcher(&http.Client{}, os.Getenv("GTFS_URL"), userAgent)
-	data, err := fetcher.Fetch(ctx)
+// eachRegion runs check as a subtest for every region in REGIONS_FILE.
+func eachRegion(t *testing.T, check func(t *testing.T, r regions.Region)) {
+	t.Helper()
+	require(t, "REGIONS_FILE")
+	configured, err := regions.Load(os.Getenv("REGIONS_FILE"))
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-	return catalog.Parse(data)
-})
+	for _, r := range configured {
+		t.Run(r.ID, func(t *testing.T) { check(t, r) })
+	}
+}
+
+// feeds holds one download per region for every test that needs it.
+var feeds sync.Map
+
+func feed(r regions.Region) (*catalog.Catalog, error) {
+	load, _ := feeds.LoadOrStore(r.ID, sync.OnceValues(func() (*catalog.Catalog, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		fetcher := catalog.NewHTTPFetcher(&http.Client{}, r.GTFS.URL, userAgent)
+		data, err := fetcher.Fetch(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return catalog.Parse(data)
+	}))
+	return load.(func() (*catalog.Catalog, error))()
+}
 
 func TestGTFSFeed(t *testing.T) {
-	require(t, "GTFS_URL")
-	c, err := feed()
-	if err != nil {
-		t.Fatalf("feed: %v", err)
-	}
-	kinds := map[catalog.Kind]int{}
-	for _, s := range c.Stops() {
-		kinds[s.Kind]++
-	}
-	t.Logf("routes=%d stations=%d platforms=%d roadside=%d",
-		len(c.Routes()), kinds[catalog.Station], kinds[catalog.Platform], kinds[catalog.Roadside])
+	eachRegion(t, func(t *testing.T, r regions.Region) {
+		c, err := feed(r)
+		if err != nil {
+			t.Fatalf("feed: %v", err)
+		}
+		kinds := map[catalog.Kind]int{}
+		for _, s := range c.Stops() {
+			kinds[s.Kind]++
+		}
+		t.Logf("routes=%d stations=%d platforms=%d roadside=%d",
+			len(c.Routes()), kinds[catalog.Station], kinds[catalog.Platform], kinds[catalog.Roadside])
+	})
 }
 
 func TestBroker(t *testing.T) {
-	require(t, "MQTT_URL")
+	eachRegion(t, func(t *testing.T, r regions.Region) {
+		if r.Live == nil {
+			t.Skip("no live feed")
+		}
+		c, err := feed(r)
+		if err != nil {
+			t.Fatalf("feed: %v", err)
+		}
+		checkBroker(t, *r.Live, c.Bounds())
+	})
+}
+
+func checkBroker(t *testing.T, cfg regions.Live, area geo.BBox) {
 	duration := 15 * time.Second
 	if d, err := time.ParseDuration(os.Getenv("LIVE_MQTT_DURATION")); err == nil {
 		duration = d
@@ -90,19 +122,18 @@ func TestBroker(t *testing.T) {
 	mqtt.WARN = log.New(out, "mqtt warn: ", 0)
 	t.Cleanup(func() { mqtt.ERROR, mqtt.CRITICAL, mqtt.WARN = mqtt.NOOPLogger{}, mqtt.NOOPLogger{}, mqtt.NOOPLogger{} })
 
-	prefix := cmp.Or(os.Getenv("MQTT_CLIENT_ID_PREFIX"), "jalvio-")
-	clientID, err := mqttfeed.LoadOrCreateClientID(filepath.Join(t.TempDir(), "mqtt-client-id"), prefix)
+	clientID, err := mqttfeed.LoadOrCreateClientID(filepath.Join(t.TempDir(), "mqtt-client-id"), cfg.ClientIDPrefix)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	buses := fleet.New()
 	demand := mqttfeed.NewDemand(time.Now)
-	demand.Hold("live", mqttfeed.Interest{Areas: []geo.BBox{{West: 106.81, South: -6.19, East: 106.85, North: -6.15}}})
+	demand.Hold("live", mqttfeed.Interest{Areas: []geo.BBox{area}})
 	live := mqttfeed.New(mqttfeed.Config{
-		URL:           os.Getenv("MQTT_URL"),
-		TLSServerName: os.Getenv("MQTT_TLS_SERVER_NAME"),
-		DialAddress:   os.Getenv("MQTT_DIAL_ADDRESS"),
+		URL:           cfg.MQTTURL,
+		TLSServerName: cfg.TLSServerName,
+		DialAddress:   cfg.DialAddress,
 		ClientID:      clientID,
 	}, buses, demand, slog.New(slog.NewTextHandler(out, nil)))
 
@@ -123,18 +154,26 @@ func TestBroker(t *testing.T) {
 }
 
 func TestStopAPI(t *testing.T) {
-	require(t, "STOP_API_URL", "STOP_API_APP_VERSION", "GTFS_URL")
-	c, err := feed()
-	if err != nil {
-		t.Fatalf("feed: %v", err)
-	}
+	eachRegion(t, func(t *testing.T, r regions.Region) {
+		if r.StopFacilities == nil {
+			t.Skip("no stop facilities sync")
+		}
+		c, err := feed(r)
+		if err != nil {
+			t.Fatalf("feed: %v", err)
+		}
+		checkStopAPI(t, *r.StopFacilities, c)
+	})
+}
+
+func checkStopAPI(t *testing.T, cfg regions.StopFacilities, c *catalog.Catalog) {
 	deviceID, err := stopapi.LoadOrCreateDeviceID(filepath.Join(t.TempDir(), "device-id"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	api := stopapi.New(&http.Client{Timeout: 30 * time.Second}, stopapi.Config{
-		BaseURL:    os.Getenv("STOP_API_URL"),
-		AppVersion: os.Getenv("STOP_API_APP_VERSION"),
+		BaseURL:    cfg.URL,
+		AppVersion: cfg.AppVersion,
 		DeviceID:   deviceID,
 		UserAgent:  userAgent,
 	})

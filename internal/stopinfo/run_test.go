@@ -10,7 +10,7 @@ import (
 
 func TestDailyAt(t *testing.T) {
 	wib := time.FixedZone("WIB", 7*60*60)
-	next := stopinfo.DailyAt(3, 0)
+	next := stopinfo.DailyAt(3, 0, wib)
 	tests := []struct{ now, want time.Time }{
 		{time.Date(2026, 10, 12, 1, 0, 0, 0, wib), time.Date(2026, 10, 12, 3, 0, 0, 0, wib)},
 		{time.Date(2026, 10, 12, 3, 0, 0, 0, wib), time.Date(2026, 10, 13, 3, 0, 0, 0, wib)},
@@ -20,6 +20,18 @@ func TestDailyAt(t *testing.T) {
 		if got := next(tt.now); !got.Equal(tt.want) {
 			t.Errorf("next(%v) = %v, want %v", tt.now, got, tt.want)
 		}
+	}
+}
+
+func TestDailyAtUsesTheRegionZone(t *testing.T) {
+	jakarta, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 30, 19, 30, 0, 0, time.UTC)
+	want := time.Date(2026, 10, 30, 20, 0, 0, 0, time.UTC)
+	if got := stopinfo.DailyAt(3, 0, jakarta)(now); !got.Equal(want) {
+		t.Errorf("next(%v) = %v, want %v", now, got, want)
 	}
 }
 

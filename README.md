@@ -11,20 +11,13 @@ Self-hosted Go backend that serves public transit data to the Jalvio app.
 
 ```sh
 mise install
+mkdir -p data && cp regions.example.json data/regions.json # then fill in the upstream endpoints
 go run ./cmd/jalvio
 ```
 
 | Variable                     | Default   | Purpose                                                         |
 | ---------------------------- | --------- | --------------------------------------------------------------- |
-| `GTFS_URL`                   | required  | Static GTFS feed (zip) to load and refresh                      |
-| `GTFS_REFRESH`               | `24h`     | How often the feed is checked                                   |
-| `MQTT_URL`                   | empty     | Live bus feed broker (`ws://` or `wss://`); empty turns it off  |
-| `MQTT_TLS_SERVER_NAME`       | URL host  | Name the broker certificate is verified against                 |
-| `MQTT_DIAL_ADDRESS`          | empty     | `host:port` to dial instead of the URL's host                   |
-| `MQTT_CLIENT_ID_PREFIX`      | `jalvio-` | Client ID prefix; a stored ID without it is replaced            |
-| `STOP_API_URL`               | empty     | Stop API base URL for the facilities sync; empty turns it off   |
-| `STOP_API_APP_VERSION`       | empty     | App version the stop API expects; required with `STOP_API_URL`  |
-| `STOPINFO_SYNC_AT`           | `03:00`   | Daily facilities sync time (`HH:MM`) in the local zone (`TZ`)   |
+| `REGIONS_FILE`               | data dir  | The regions served and their upstreams; default `regions.json`  |
 | `PHOTON_URL`                 | empty     | Photon geocoder base URL for place search; empty turns it off   |
 | `PHOTON_USER_AGENT`          | empty     | User-Agent naming the operator; required with `PHOTON_URL`      |
 | `PLACES_REQUESTS_PER_MINUTE` | `60`      | Geocoder calls allowed per minute; cached lookups are free      |
@@ -32,16 +25,38 @@ go run ./cmd/jalvio
 | `BROWSER_ORIGINS`            | empty     | Space-separated origins allowed on `live`; empty: apps only     |
 | `LEGAL_FILE`                 | data dir  | Terms and privacy policy to publish; default `legal.json`       |
 | `JALVIO_LISTEN`              | `:8080`   | HTTP listen address                                             |
-| `JALVIO_DATA_DIR`            | `./data`  | Stored feed, client and device IDs, and snapshots               |
+| `JALVIO_DATA_DIR`            | `./data`  | Each region's stored feed, client and device IDs, and snapshots |
 
 Upstream endpoints are deployment configuration and are not part of this repository.
+
+### Regions
+
+One instance serves every region in `REGIONS_FILE`, starting from [`regions.example.json`](regions.example.json). The file is required and read at startup, so restart to apply a change; an invalid file stops startup with the field at fault, such as `regions[0].gtfs.url`. Unknown fields are rejected, and at least one region is required.
+
+| Field            | Rules                                                                                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| `id`             | Required, unique lowercase slug (`a-z`, `0-9`, single hyphens), at most 32 characters. Never change it once riders use it: it names the region's paths and storage |
+| `name`           | Required                                                                                                   |
+| `timeZone`       | Required IANA zone, such as `Asia/Jakarta`; the facilities sync runs in it                                |
+| `gtfs.url`       | Required http(s) URL of the static GTFS feed (zip)                                                         |
+| `gtfs.refresh`   | How often the feed is checked; default `24h`                                                               |
+| `live`           | Optional live bus feed. `mqttUrl` (`ws://` or `wss://`) is required; `tlsServerName` defaults to the URL host; `dialAddress` (`host:port`) is dialed instead of the URL host; `clientIdPrefix` defaults to `jalvio-`, and a stored ID without it is replaced |
+| `stopFacilities` | Optional daily facilities sync. `url` and `appVersion` are required; `syncAt` (`HH:MM`) defaults to `03:00` |
+| `map`            | Optional offline map, passed to clients in `/v1/regions`. `url` (http(s) or a path), `bytes` and `updated` (`YYYY-MM-DD`) are required |
+
+Write `map` by hand for now: the service does not host or build map files.
+
+Each region keeps its state under `regions/<id>` in `JALVIO_DATA_DIR`. Files an older version kept at the top of the data directory (`gtfs.zip`, `stopinfo.json`, `mqtt-client-id`, `device-id`) are no longer read and can be deleted.
 
 ### Docker
 
 ```sh
-cp .env.example .env # then fill in the upstream endpoints
+cp .env.example .env               # then fill in the settings
+cp regions.example.json regions.json # and the upstream endpoints
 docker compose up -d --build
 ```
+
+Compose mounts `./regions.json` read-only as the regions file.
 
 Each release is also published for `linux/amd64` and `linux/arm64` as `ghcr.io/lscythe/jalvio-service:<version>`, `:<major>.<minor>`, and `:latest`.
 
@@ -80,7 +95,7 @@ lefthook install # git hooks: format, lint, tests, commit message
 mise run check   # format, lint, race tests, coverage gate, vulnerability scan
 ```
 
-`mise run live` checks the real upstreams named in the environment: one GTFS download, 15 s of the broker (`LIVE_MQTT_DURATION`), one stop API name search, and one Photon search (`PHOTON_URL`, `PHOTON_USER_AGENT`, `LIVE_PLACE_QUERY`). Each check skips when its settings are missing, and output is counts only. CI never runs it.
+`mise run live` checks the real upstreams of each region in `REGIONS_FILE`: one GTFS download, 15 s of the broker (`LIVE_MQTT_DURATION`), and one stop API name search. It also runs one Photon search (`PHOTON_URL`, `PHOTON_USER_AGENT`, `LIVE_PLACE_QUERY`). Each check skips what is not configured, and output is counts only. CI never runs it.
 
 Releases are cut by [release-please](https://github.com/googleapis/release-please): Conventional Commits merged to `main` keep a release pull request up to date, and merging it tags `vX.Y.Z`, publishes a GitHub release, and updates `CHANGELOG.md`.
 

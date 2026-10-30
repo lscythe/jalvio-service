@@ -46,7 +46,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/feed"
           (cd internal/catalog/testdata/feed && zip -q "$RUNNER_TEMP/feed/feed.zip" *.txt)
           python3 -m http.server 8000 --bind 127.0.0.1 --directory "$RUNNER_TEMP/feed" &
-          docker run -d --name jalvio --network host -e GTFS_URL=http://127.0.0.1:8000/feed.zip jalvio-service:ci
+          cat > "$RUNNER_TEMP/regions.json" <<'EOF'
+          {"regions": [{"id": "fixture", "name": "Fixture", "timeZone": "Asia/Jakarta", "gtfs": {"url": "http://127.0.0.1:8000/feed.zip"}}]}
+          EOF
+          docker run -d --name jalvio --network host \
+            -v "$RUNNER_TEMP/regions.json:/config/regions.json:ro" -e REGIONS_FILE=/config/regions.json \
+            jalvio-service:ci
           for _ in $(seq 30); do
             if docker exec jalvio /jalvio healthcheck; then exit 0; fi
             sleep 1
