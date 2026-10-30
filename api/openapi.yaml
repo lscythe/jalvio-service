@@ -731,7 +731,9 @@ components:
               type: string
             version:
               type: string
-              description: The ETag the catalog is served with.
+              description: >-
+                The ETag the catalog is served with. Not the feed version that
+                `/v1/status` and live status frames report.
             updatedAt:
               type: string
               format: date-time

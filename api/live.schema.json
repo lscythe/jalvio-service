@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jalvio.invalid/live.schema.json",
-  "title": "/v1/live frames",
-  "description": "Text frames on the /v1/live WebSocket (subprotocol jalvio.live.v1). The client sends Subscribe; the server sends ServerFrame.",
+  "title": "Live frames",
+  "description": "Text frames on a region's /v1/regions/{region}/live WebSocket (subprotocol jalvio.live.v1). The client sends Subscribe; the server sends ServerFrame.",
   "$defs": {
     "Subscribe": {
       "description": "Replaces the previous subscription. At least one of bbox and routes is required; with both, a bus must match both. At most 2 per second, at most 4 KiB.",
@@ -43,7 +43,7 @@
         "type": { "const": "status" },
         "feed": { "enum": ["disabled", "connected", "disconnected"] },
         "catalogVersion": {
-          "description": "Changes when /v1/catalog does; refresh the stored catalog.",
+          "description": "The region catalog's feedVersion, which changes when its feed does; refresh the stored catalog then. It is not the catalog's ETag, which /v1/regions reports as catalog.version.",
           "type": "string"
         }
       }

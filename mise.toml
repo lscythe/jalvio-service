@@ -37,7 +37,7 @@ run = "go run ./cmd/covergate"
 run = "govulncheck ./..."
 
 [tasks.live]
-description = "Check the real upstreams configured in the environment (opt-in)"
+description = "Check the real upstreams in the regions file and environment (opt-in)"
 run = "go test -tags live -count=1 -v ./test/live"
 
 [tasks.check]

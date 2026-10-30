@@ -84,7 +84,7 @@ Everything specific to a region lives under `/v1/regions/{region}`; an unknown r
 | `/places`             | Destinations matching a query, in the area the region serves, with OSM attribution        |
 | `/places/reverse`     | The address or place at a point                                                           |
 
-[`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. [`api/live.schema.json`](api/live.schema.json) does the same for `live` frames. The catalog and legal documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
+[`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. [`api/live.schema.json`](api/live.schema.json) does the same for `live` frames. The region list, catalog, and legal documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
 
 The legal documents belong to whoever runs the instance. Write them in `LEGAL_FILE`, starting from [`legal.example.json`](legal.example.json): each document has an `updated` date, an English version, and optionally an Indonesian one, which falls back to English when missing. The file is read at startup, so restart to publish a change; an invalid file stops startup with the field at fault, and without a file both documents return `404`.
 
@@ -95,7 +95,7 @@ lefthook install # git hooks: format, lint, tests, commit message
 mise run check   # format, lint, race tests, coverage gate, vulnerability scan
 ```
 
-`mise run live` checks the real upstreams of each region in `REGIONS_FILE`: one GTFS download, 15 s of the broker (`LIVE_MQTT_DURATION`), and one stop API name search. It also runs one Photon search (`PHOTON_URL`, `PHOTON_USER_AGENT`, `LIVE_PLACE_QUERY`). Each check skips what is not configured, and output is counts only. CI never runs it.
+`mise run live` checks the real upstreams of each region in the regions file (`REGIONS_FILE` or its default): one GTFS download, 15 s of the broker (`LIVE_MQTT_DURATION`), and one stop API name search. It also runs one Photon search (`PHOTON_URL`, `PHOTON_USER_AGENT`, `LIVE_PLACE_QUERY`). Each check skips what is not configured, and output is counts only. CI never runs it.
 
 Releases are cut by [release-please](https://github.com/googleapis/release-please): Conventional Commits merged to `main` keep a release pull request up to date, and merging it tags `vX.Y.Z`, publishes a GitHub release, and updates `CHANGELOG.md`.
 
