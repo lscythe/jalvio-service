@@ -11,6 +11,8 @@ package live_test
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log"
 	"log/slog"
 	"net/http"
@@ -24,6 +26,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
+	"github.com/lscythe/jalvio-service/internal/config"
 	"github.com/lscythe/jalvio-service/internal/fleet"
 	"github.com/lscythe/jalvio-service/internal/geo"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
@@ -51,11 +54,18 @@ func require(t *testing.T, keys ...string) {
 	}
 }
 
-// eachRegion runs check as a subtest for every region in REGIONS_FILE.
+// eachRegion runs check as a subtest for every region in the service's
+// regions file.
 func eachRegion(t *testing.T, check func(t *testing.T, r regions.Region)) {
 	t.Helper()
-	require(t, "REGIONS_FILE")
-	configured, err := regions.Load(os.Getenv("REGIONS_FILE"))
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cfg.RegionsFile); errors.Is(err, fs.ErrNotExist) {
+		t.Skipf("no regions file at %s", cfg.RegionsFile)
+	}
+	configured, err := regions.Load(cfg.RegionsFile)
 	if err != nil {
 		t.Fatal(err)
 	}
