@@ -54,6 +54,7 @@ The image is distroless, runs as a non-root user, and keeps its state in the `/d
 | `/healthz`           | `204` once every region's catalog is loaded, `503` before that or while draining           |
 | `/v1/status`         | Version, start time, and each region's catalog, live feed, and stop facilities state       |
 | `/v1/legal/{name}`   | The owner's `terms` or `privacy` policy, in English or Indonesian (`?lang=id`)             |
+| `/v1/regions`        | Each region's name, time zone, bounds, live flag, catalog version and links, offline map   |
 
 Everything specific to a region lives under `/v1/regions/{region}`; an unknown region is `404`.
 

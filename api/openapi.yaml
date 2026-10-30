@@ -40,6 +40,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/Status"
 
+  /v1/regions:
+    get:
+      operationId: listRegions
+      summary: The regions this instance serves
+      description: |
+        Fetch at launch with the stored ETag in `If-None-Match`. Compare each
+        region's `catalog.version` with the ETag of the stored catalog to
+        decide whether to download it again. Resolve every `url` against the
+        URL of this response: a path today, possibly an absolute URL when a
+        catalog or map moves to external storage.
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Every region, in the owner's order.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionList"
+        "304":
+          description: The stored copy is current. No body.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+        "503":
+          description: A region has no catalog yet.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
   /v1/regions/{region}/catalog:
     get:
       operationId: getCatalog
@@ -652,6 +686,76 @@ components:
           description: The OSM category value, e.g. `mall`, `school`, `bus_stop`.
         position:
           $ref: "#/components/schemas/Position"
+
+    RegionList:
+      type: object
+      additionalProperties: false
+      required: [regions]
+      properties:
+        regions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Region"
+
+    Region:
+      type: object
+      additionalProperties: false
+      required: [id, name, timeZone, bounds, live, catalog, shapes]
+      properties:
+        id:
+          type: string
+          description: Stable; used in this region's paths.
+        name:
+          type: string
+        timeZone:
+          type: string
+          description: IANA time zone name.
+        bounds:
+          type: object
+          additionalProperties: false
+          required: [southWest, northEast]
+          properties:
+            southWest:
+              $ref: "#/components/schemas/Position"
+            northEast:
+              $ref: "#/components/schemas/Position"
+        live:
+          type: boolean
+          description: Whether the region has live buses; without them the live endpoints report the feed as `disabled`.
+        catalog:
+          type: object
+          additionalProperties: false
+          required: [url, version]
+          properties:
+            url:
+              type: string
+            version:
+              type: string
+              description: The ETag the catalog is served with.
+            updatedAt:
+              type: string
+              format: date-time
+        shapes:
+          type: object
+          additionalProperties: false
+          required: [url]
+          properties:
+            url:
+              type: string
+        map:
+          type: object
+          description: The region's offline map, a PMTiles file. Absent when the region has none.
+          additionalProperties: false
+          required: [url, bytes, updated]
+          properties:
+            url:
+              type: string
+            bytes:
+              type: integer
+              format: int64
+            updated:
+              type: string
+              format: date
 
     Status:
       type: object

@@ -138,9 +138,13 @@ func New(d Deps) http.Handler {
 
 	var openStreams atomic.Int64
 	byID := make(map[string]*regionHandlers, len(d.Regions))
+	list := &regionList{}
 	for _, r := range d.Regions {
-		byID[r.ID] = newRegionHandlers(r, d, &openStreams)
+		rh := newRegionHandlers(r, d, &openStreams)
+		byID[r.ID] = rh
+		list.regions = append(list.regions, rh)
 	}
+	mux.HandleFunc("GET /v1/regions", list.serve)
 	for pattern, serve := range map[string]func(*regionHandlers, http.ResponseWriter, *http.Request){
 		"/catalog":             func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.docs.serveCatalog(w, r) },
 		"/catalog/shapes":      func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.docs.serveShapes(w, r) },

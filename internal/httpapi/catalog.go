@@ -23,10 +23,33 @@ type catalogDocuments struct {
 }
 
 func (d *catalogDocuments) serveCatalog(w http.ResponseWriter, r *http.Request) {
-	c := d.catalogs.Current()
-	if c == nil {
+	key, build, ok := d.catalogSource()
+	if !ok {
 		writeProblem(w, http.StatusServiceUnavailable)
 		return
+	}
+	d.catalog.serve(w, r, key, build)
+}
+
+// etag is the ETag the catalog is served with, false before one loads.
+func (d *catalogDocuments) etag() (string, bool, error) {
+	key, build, ok := d.catalogSource()
+	if !ok {
+		return "", false, nil
+	}
+	doc, err := d.catalog.get(key, build)
+	if err != nil {
+		return "", false, err
+	}
+	return doc.etag, true, nil
+}
+
+// catalogSource returns the cache key and builder for the current catalog
+// with its facilities, false before a catalog loads.
+func (d *catalogDocuments) catalogSource() (string, func() any, bool) {
+	c := d.catalogs.Current()
+	if c == nil {
+		return "", nil, false
 	}
 	var snap *stopinfo.Snapshot
 	if d.stopInfo != nil {
@@ -36,7 +59,7 @@ func (d *catalogDocuments) serveCatalog(w http.ResponseWriter, r *http.Request) 
 	if snap != nil {
 		key += " " + snap.SyncedAt.Format(time.RFC3339Nano)
 	}
-	d.catalog.serve(w, r, key, func() any { return newCatalogResponse(c, snap) })
+	return key, func() any { return newCatalogResponse(c, snap) }, true
 }
 
 func (d *catalogDocuments) serveShapes(w http.ResponseWriter, r *http.Request) {
