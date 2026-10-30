@@ -1,0 +1,269 @@
+openapi: 3.0.3
+info:
+  title: jalvio-community
+  version: "1"
+  description: |
+    Community identity for the Jalvio app. Riders get a device account
+    without signing in and may attach a Google account later. Transit data
+    is served by the separate, anonymous transit service.
+
+    Authenticated requests send `Authorization: Bearer <token>`. A token is
+    returned once, by account creation or Google sign-in, and is never shown
+    again. Request bodies are limited to 8 KB. JSON is camelCase, times are
+    RFC 3339 in UTC, and errors are RFC 9457 problem details.
+  license:
+    name: Apache-2.0
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Readiness
+      security: []
+      responses:
+        "204":
+          description: Ready. No body.
+        "503":
+          description: The database is unreachable, or the service is draining. No body.
+
+  /v1/accounts:
+    post:
+      operationId: createAccount
+      summary: Create a device account
+      description: |
+        Creates an account tied to nothing but the returned token. A client
+        address may create a limited number of accounts per hour.
+      security: []
+      responses:
+        "201":
+          description: The new account's session token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
+        "429":
+          description: Too many accounts created from this address; retry later.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/Failed"
+
+  /v1/session/google:
+    post:
+      operationId: signInWithGoogle
+      summary: Sign in with Google
+      description: |
+        Links the current device account to the Google account behind the ID
+        token and returns the same token. When that Google account already
+        has an account, the device account is merged into it, its token stops
+        working, and a new token is returned. Fetch `/v1/me` afterwards.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleSignIn"
+      responses:
+        "200":
+          description: The token to use from now on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: The account is linked to a different Google account; sign out first.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "500":
+          $ref: "#/components/responses/Failed"
+        "503":
+          description: Google sign-in is not configured, or Google's keys cannot be fetched right now.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/session:
+    delete:
+      operationId: signOut
+      summary: Sign out this phone
+      responses:
+        "204":
+          description: Signed out. No body.
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: A device-only account has no way back in; it can only be deleted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "500":
+          $ref: "#/components/responses/Failed"
+
+  /v1/me:
+    get:
+      operationId: getProfile
+      summary: The rider's profile
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/Failed"
+    patch:
+      operationId: updateProfile
+      summary: Change the rider's profile
+      description: A missing field is unchanged; an explicit `null` clears it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileUpdate"
+      responses:
+        "200":
+          description: The updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "500":
+          $ref: "#/components/responses/Failed"
+    delete:
+      operationId: deleteAccount
+      summary: Delete the account and everything tied to it
+      description: Ends every session of the account.
+      responses:
+        "204":
+          description: Deleted. No body.
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/Failed"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  responses:
+    BadRequest:
+      description: The body or a field is invalid; `detail` names the field.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthenticated:
+      description: The token is missing or no longer valid, for example after a merge or deletion.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    TooLarge:
+      description: The body is larger than 8 KB.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Failed:
+      description: The service failed; retry later.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+
+    Token:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: 32 random bytes, base64url without padding.
+          pattern: "^[A-Za-z0-9_-]{43}$"
+
+    GoogleSignIn:
+      type: object
+      additionalProperties: false
+      required: [idToken]
+      properties:
+        idToken:
+          type: string
+          description: A Google ID token issued to one of the app's client IDs.
+
+    Profile:
+      type: object
+      additionalProperties: false
+      required: [google, createdAt]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 40
+        avatar:
+          type: object
+          description: The avatar builder's choices, returned as saved.
+        google:
+          type: boolean
+          description: Whether a Google account is linked.
+        createdAt:
+          type: string
+          format: date-time
+
+    ProfileUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+          nullable: true
+          maxLength: 40
+          description: 1 to 40 characters after trimming spaces, without control characters.
+        avatar:
+          type: object
+          nullable: true
+          description: A JSON object of at most 2048 bytes.
