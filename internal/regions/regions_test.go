@@ -128,6 +128,7 @@ func TestLoadRejectsInvalidFiles(t *testing.T) {
 		{"duplicate id", file(minimal("a", ""), minimal("a", "")), "regions[1].id"},
 		{"empty name", file(`{"id": "a", "name": " ", "timeZone": "Asia/Jakarta", "gtfs": {"url": "https://gtfs.example.com/feed.zip"}}`), "regions[0].name"},
 		{"unknown time zone", file(`{"id": "a", "name": "A", "timeZone": "Mars/Base", "gtfs": {"url": "https://gtfs.example.com/feed.zip"}}`), "regions[0].timeZone"},
+		{"the host's time zone", file(`{"id": "a", "name": "A", "timeZone": "Local", "gtfs": {"url": "https://gtfs.example.com/feed.zip"}}`), "regions[0].timeZone"},
 		{"no time zone", file(`{"id": "a", "name": "A", "gtfs": {"url": "https://gtfs.example.com/feed.zip"}}`), "regions[0].timeZone"},
 		{"feed not http", file(minimal("a", `"gtfs": {"url": "ftp://x"}`)), "regions[0].gtfs.url"},
 		{"zero refresh", file(minimal("a", `"gtfs": {"url": "https://gtfs.example.com/feed.zip", "refresh": "0s"}`)), "regions[0].gtfs.refresh"},

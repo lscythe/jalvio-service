@@ -145,6 +145,10 @@ func (rj regionJSON) region(field string) (Region, error) {
 	if rj.TimeZone == "" {
 		return Region{}, fmt.Errorf("%s.timeZone: required", field)
 	}
+	// Clients receive the name, and "Local" would mean the host's zone.
+	if rj.TimeZone == "Local" {
+		return Region{}, fmt.Errorf("%s.timeZone: %q is not an IANA zone name", field, rj.TimeZone)
+	}
 	loc, err := time.LoadLocation(rj.TimeZone)
 	if err != nil {
 		return Region{}, fmt.Errorf("%s.timeZone: %w", field, err)
