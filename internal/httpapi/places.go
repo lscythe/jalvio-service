@@ -10,11 +10,26 @@ import (
 	"github.com/lscythe/jalvio-service/internal/places"
 )
 
-// osmAttribution is required wherever OpenStreetMap data is shown.
-const osmAttribution = "© OpenStreetMap contributors"
+const (
+	// osmAttribution is required wherever OpenStreetMap data is shown.
+	osmAttribution = "© OpenStreetMap contributors"
+	// placesAreaMargin (about 10 km) keeps destinations just past the last
+	// stop searchable.
+	placesAreaMargin = 0.1
+)
 
 type placesHandlers struct {
-	places Places
+	places   Places
+	catalogs Catalogs
+}
+
+// area is the network's padded bounds, or the zero box before a catalog loads.
+func (h *placesHandlers) area() geo.BBox {
+	c := h.catalogs.Current()
+	if c == nil {
+		return geo.BBox{}
+	}
+	return c.Bounds().Pad(placesAreaMargin)
 }
 
 type placesResponse struct {
@@ -66,7 +81,7 @@ func (h *placesHandlers) serveSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	found, err := h.places.Search(r.Context(), q.Get("q"), near, limit)
+	found, err := h.places.Search(r.Context(), h.area(), q.Get("q"), near, limit)
 	if errors.Is(err, places.ErrQueryTooShort) {
 		writeBadRequest(w, "q must have at least 3 characters")
 		return

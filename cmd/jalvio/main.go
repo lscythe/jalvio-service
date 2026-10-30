@@ -19,7 +19,6 @@ import (
 	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/config"
 	"github.com/lscythe/jalvio-service/internal/fleet"
-	"github.com/lscythe/jalvio-service/internal/geo"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
 	"github.com/lscythe/jalvio-service/internal/legal"
 	"github.com/lscythe/jalvio-service/internal/mqttfeed"
@@ -43,9 +42,6 @@ const (
 	placesTimeout      = 3 * time.Second
 	placesCacheSize    = 10000
 	placesCacheTTL     = 24 * time.Hour
-	// placesAreaMargin (about 10 km) keeps destinations just past the last
-	// stop searchable.
-	placesAreaMargin = 0.1
 )
 
 // Upstream request spacing for the stop facilities sync; tests shorten it.
@@ -148,14 +144,7 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 	var placeSearch httpapi.Places
 	if cfg.PhotonURL != "" {
 		photon := places.NewPhoton(&http.Client{Timeout: placesTimeout}, cfg.PhotonURL, cfg.PhotonUserAgent)
-		area := func() (geo.BBox, bool) {
-			c := catalogs.Current()
-			if c == nil {
-				return geo.BBox{}, false
-			}
-			return c.Bounds().Pad(placesAreaMargin), true
-		}
-		placeSearch = places.NewService(photon, area, places.Config{
+		placeSearch = places.NewService(photon, places.Config{
 			RequestsPerMinute: cfg.PlacesRequestsPerMinute,
 			CacheSize:         placesCacheSize,
 			CacheTTL:          placesCacheTTL,

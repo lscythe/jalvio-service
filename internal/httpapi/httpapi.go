@@ -52,7 +52,7 @@ type Demand interface {
 }
 
 type Places interface {
-	Search(ctx context.Context, text string, near *geo.Point, limit int) ([]places.Place, error)
+	Search(ctx context.Context, area geo.BBox, text string, near *geo.Point, limit int) ([]places.Place, error)
 	Reverse(ctx context.Context, at geo.Point) (places.Place, error)
 }
 
@@ -140,7 +140,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /v1/buses", l.serveBuses)
 	mux.HandleFunc("GET /v1/buses/{fleetNumber}", l.serveBus)
 	mux.HandleFunc("GET /v1/live", newLiveStream(d).serve)
-	p := &placesHandlers{places: d.Places}
+	p := &placesHandlers{places: d.Places, catalogs: d.Catalogs}
 	mux.HandleFunc("GET /v1/places", p.serveSearch)
 	mux.HandleFunc("GET /v1/places/reverse", p.serveReverse)
 	mux.HandleFunc("GET /v1/legal/{document}", (&legalDocuments{docs: d.Legal}).serve)

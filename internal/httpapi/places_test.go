@@ -18,6 +18,7 @@ var grandIndonesia = places.Place{
 }
 
 type searchCall struct {
+	area  geo.BBox
 	text  string
 	near  *geo.Point
 	limit int
@@ -29,9 +30,9 @@ type fakePlaces struct {
 	calls *[]searchCall
 }
 
-func (f fakePlaces) Search(_ context.Context, text string, near *geo.Point, limit int) ([]places.Place, error) {
+func (f fakePlaces) Search(_ context.Context, area geo.BBox, text string, near *geo.Point, limit int) ([]places.Place, error) {
 	if f.calls != nil {
-		*f.calls = append(*f.calls, searchCall{text, near, limit})
+		*f.calls = append(*f.calls, searchCall{area, text, near, limit})
 	}
 	if len(text) < 3 {
 		return nil, places.ErrQueryTooShort
@@ -82,6 +83,26 @@ func TestPlacesDefaults(t *testing.T) {
 	}
 	if len(calls) != 1 || calls[0].near != nil || calls[0].limit != 0 {
 		t.Errorf("search calls = %+v, want one without near or limit", calls)
+	}
+}
+
+func TestPlacesSearchUsesTheCatalogArea(t *testing.T) {
+	var calls []searchCall
+	c := fixtureCatalog(t)
+	d := deps(true)
+	d.Catalogs = fakeCatalogs{current: c}
+	d.Places = fakePlaces{calls: &calls}
+	get(t, httpapi.New(d), "/v1/places?q=monas", nil)
+	if want := c.Bounds().Pad(0.1); len(calls) != 1 || calls[0].area != want {
+		t.Errorf("search calls = %+v, want one in %+v", calls, want)
+	}
+}
+
+func TestPlacesSearchBeforeTheCatalogLoads(t *testing.T) {
+	var calls []searchCall
+	get(t, placesHandler(fakePlaces{calls: &calls}), "/v1/places?q=monas", nil)
+	if len(calls) != 1 || calls[0].area != (geo.BBox{}) {
+		t.Errorf("search calls = %+v, want one without an area", calls)
 	}
 }
 
