@@ -223,6 +223,29 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+func TestMergeRefusesALinkedOrTheSameAccount(t *testing.T) {
+	s, db := testStore(t)
+	ctx := context.Background()
+	a := create(t, s, "a")
+	if err := s.LinkGoogle(ctx, a.ID, "sub-a", t0); err != nil {
+		t.Fatal(err)
+	}
+	b := create(t, s, "b")
+
+	if err := s.Merge(ctx, a.ID, b.ID, hash("merged"), t0); !errors.Is(err, accounts.ErrOtherGoogleAccount) {
+		t.Errorf("merging a linked account = %v, want ErrOtherGoogleAccount", err)
+	}
+	if !accountExists(t, db, a.ID) {
+		t.Error("a linked account was deleted by a merge")
+	}
+	if err := s.Merge(ctx, b.ID, b.ID, hash("self"), t0); err == nil {
+		t.Error("merging an account into itself succeeded")
+	}
+	if !accountExists(t, db, b.ID) {
+		t.Error("an account merged into itself was deleted")
+	}
+}
+
 func TestMergeKeepsTheGoogleAccountsProfile(t *testing.T) {
 	s, _ := testStore(t)
 	ctx := context.Background()

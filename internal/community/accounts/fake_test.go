@@ -3,6 +3,7 @@ package accounts_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"sync"
 	"time"
@@ -90,6 +91,12 @@ func (s *fakeStore) Merge(_ context.Context, fromID, intoID string, tokenHash []
 	from, into := s.accounts[fromID], s.accounts[intoID]
 	if from == nil || into == nil {
 		return accounts.ErrNoSession
+	}
+	if fromID == intoID {
+		return errors.New("merge into itself")
+	}
+	if from.GoogleSub != "" {
+		return accounts.ErrOtherGoogleAccount
 	}
 	if into.DisplayName == nil {
 		into.DisplayName = from.DisplayName

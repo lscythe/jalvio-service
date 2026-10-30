@@ -130,7 +130,7 @@ func (s *Service) SignInWithGoogle(ctx context.Context, acc Account, token, idTo
 		return "", err
 	}
 	if found {
-		return s.merge(ctx, acc, owner)
+		return s.merge(ctx, acc, owner, token)
 	}
 	err = s.store.LinkGoogle(ctx, acc.ID, sub, s.clock())
 	if !errors.Is(err, ErrGoogleTaken) {
@@ -147,10 +147,14 @@ func (s *Service) SignInWithGoogle(ctx context.Context, acc Account, token, idTo
 	if !found {
 		return "", fmt.Errorf("google account taken but not found: %w", ErrGoogleTaken)
 	}
-	return s.merge(ctx, acc, owner)
+	return s.merge(ctx, acc, owner, token)
 }
 
-func (s *Service) merge(ctx context.Context, from, into Account) (string, error) {
+func (s *Service) merge(ctx context.Context, from, into Account, token string) (string, error) {
+	// A concurrent request already linked this very account.
+	if from.ID == into.ID {
+		return token, nil
+	}
 	token, hash, err := newToken()
 	if err != nil {
 		return "", err

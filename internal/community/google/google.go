@@ -28,6 +28,9 @@ const (
 	// unknownKeyRefresh bounds how often a token with an unknown key id can
 	// make the verifier fetch the key set again.
 	unknownKeyRefresh = time.Minute
+	// failureBackoff makes sign-ins fail at once for a while after a failed
+	// fetch, instead of each waiting out its own fetch in turn.
+	failureBackoff = 30 * time.Second
 )
 
 // issuers are the values Google puts in the iss claim of its ID tokens.
@@ -43,6 +46,7 @@ type Verifier struct {
 	keys      map[string]*rsa.PublicKey
 	fetchedAt time.Time
 	expires   time.Time
+	failedAt  time.Time
 }
 
 func NewVerifier(client *http.Client, keysURL string, clientIDs []string, clock func() time.Time) *Verifier {
@@ -107,6 +111,18 @@ func (v *Verifier) key(ctx context.Context, token *jwt.Token) (*rsa.PublicKey, e
 }
 
 func (v *Verifier) fetch(ctx context.Context, now time.Time) error {
+	if !v.failedAt.IsZero() && now.Sub(v.failedAt) < failureBackoff {
+		return fmt.Errorf("%w: recent fetch failed", ErrUnavailable)
+	}
+	if err := v.download(ctx, now); err != nil {
+		v.failedAt = now
+		return err
+	}
+	v.failedAt = time.Time{}
+	return nil
+}
+
+func (v *Verifier) download(ctx context.Context, now time.Time) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.keysURL, nil)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)

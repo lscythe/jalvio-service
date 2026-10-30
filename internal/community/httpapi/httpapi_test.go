@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -409,5 +410,26 @@ func TestAccountLimitPerAddress(t *testing.T) {
 	c.advance(time.Hour)
 	if got := create("192.0.2.1:4000", nil); got != http.StatusCreated {
 		t.Errorf("after an hour: status = %d, want 201", got)
+	}
+}
+
+func TestAccountLimitSharesAnIPv6Subnet(t *testing.T) {
+	h := handler(newFake(), true, nil)
+	create := func(remote string) int {
+		return serve(t, h, request{method: http.MethodPost, path: "/v1/accounts", remote: remote}).Code
+	}
+	for i := range 10 {
+		if got := create(fmt.Sprintf("[2001:db8::%x]:4000", i+1)); got != http.StatusCreated {
+			t.Fatalf("creation %d: status = %d, want 201", i+1, got)
+		}
+	}
+	if got := create("[2001:db8::ffff:1]:4000"); got != http.StatusTooManyRequests {
+		t.Errorf("another address in the same /64: status = %d, want 429", got)
+	}
+	if got := create("[2001:db8:0:1::1]:4000"); got != http.StatusCreated {
+		t.Errorf("another /64: status = %d, want 201", got)
+	}
+	if got := create("[::ffff:192.0.2.9]:4000"); got != http.StatusCreated {
+		t.Errorf("IPv4-mapped address: status = %d, want 201", got)
 	}
 }

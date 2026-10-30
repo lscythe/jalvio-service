@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -58,7 +57,7 @@ type profileResponse struct {
 type authedHandler func(w http.ResponseWriter, r *http.Request, acc accounts.Account, token string)
 
 func New(d Deps) http.Handler {
-	a := &api{accounts: d.Accounts, limiter: newAccountLimiter(d.AccountsPerHour, d.Clock), logger: d.Logger}
+	a := &api{accounts: d.Accounts, limiter: newAccountLimiter(d.AccountsPerHour, maxTrackedAddresses, d.Clock), logger: d.Logger}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		if !d.Ready() {
@@ -82,11 +81,7 @@ func New(d Deps) http.Handler {
 
 func (a *api) createAccount(w http.ResponseWriter, r *http.Request) {
 	// Forwarding headers are not trusted: any client could set them.
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if !a.limiter.allow(host) {
+	if !a.limiter.allow(clientKey(r.RemoteAddr)) {
 		writeProblemDetail(w, http.StatusTooManyRequests, "too many accounts created from this address; retry later")
 		return
 	}

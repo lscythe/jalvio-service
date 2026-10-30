@@ -100,7 +100,23 @@ func (s *Store) LinkGoogle(ctx context.Context, accountID, sub string, now time.
 // Merge moves the device account fromID into intoID in one transaction. Each
 // table holding an account's content must move its rows here too.
 func (s *Store) Merge(ctx context.Context, fromID, intoID string, tokenHash []byte, now time.Time) error {
+	if fromID == intoID {
+		return errors.New("merge of an account into itself")
+	}
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		// Locking the device account keeps a concurrent link from slipping in
+		// before it is deleted.
+		var googleSub *string
+		err := tx.QueryRow(ctx, "select google_sub from community.accounts where id = $1 for update", fromID).Scan(&googleSub)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return accounts.ErrNoSession
+		}
+		if err != nil {
+			return err
+		}
+		if googleSub != nil {
+			return accounts.ErrOtherGoogleAccount
+		}
 		tag, err := tx.Exec(ctx, `
 			update community.accounts as target
 			set display_name = coalesce(target.display_name, source.display_name),

@@ -137,6 +137,36 @@ func TestSignInWithAnotherGoogleAccount(t *testing.T) {
 	}
 }
 
+func TestSignInWhenAnotherRequestLinkedThisAccount(t *testing.T) {
+	store := newFakeStore()
+	svc := newService(store)
+	token, stale := device(t, svc)
+	store.accounts[stale.ID].GoogleSub = "sub-a"
+
+	got, err := svc.SignInWithGoogle(context.Background(), stale, token, "id-a")
+	if err != nil || got != token {
+		t.Fatalf("SignInWithGoogle = %q, %v, want the same token", got, err)
+	}
+	if acc, err := svc.Authenticate(context.Background(), token); err != nil || acc.ID != stale.ID {
+		t.Errorf("token after sign-in = %+v, %v, want the same account", acc, err)
+	}
+}
+
+func TestSignInRefusesToMergeAnAccountLinkedMeanwhile(t *testing.T) {
+	store := newFakeStore()
+	svc := newService(store)
+	linked(t, svc, "id-b")
+	token, stale := device(t, svc)
+	store.accounts[stale.ID].GoogleSub = "sub-a"
+
+	if _, err := svc.SignInWithGoogle(context.Background(), stale, token, "id-b"); !errors.Is(err, accounts.ErrOtherGoogleAccount) {
+		t.Errorf("SignInWithGoogle = %v, want ErrOtherGoogleAccount", err)
+	}
+	if _, err := svc.Authenticate(context.Background(), token); err != nil {
+		t.Errorf("token after the refused merge = %v, want it still valid", err)
+	}
+}
+
 func TestSignInMergesWhenLinkLosesARace(t *testing.T) {
 	store := newFakeStore()
 	svc := newService(store)

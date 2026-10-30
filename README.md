@@ -81,7 +81,7 @@ This runs the community service on port `8081` with a local PostgreSQL. To run i
 | ----------------------------- | -------- | ----------------------------------------------------------------------- |
 | `COMMUNITY_DATABASE_URL`      | required | PostgreSQL connection string; a remote host needs `sslmode=verify-full` |
 | `COMMUNITY_DB_MAX_CONNS`      | `5`      | Connection pool size; hosted plans cap connections                      |
-| `GOOGLE_CLIENT_IDS`           | empty    | Space-separated app client IDs; empty turns Google sign-in off          |
+| `GOOGLE_CLIENT_IDS`           | empty    | Client IDs the app requests ID tokens for; empty turns sign-in off      |
 | `GOOGLE_KEYS_URL`             | empty    | Google's public key set URL; required with `GOOGLE_CLIENT_IDS`          |
 | `COMMUNITY_ACCOUNTS_PER_HOUR` | `10`     | Device accounts one client address may create per hour                  |
 | `COMMUNITY_LISTEN`            | `:8081`  | HTTP listen address                                                     |
@@ -95,6 +95,8 @@ This runs the community service on port `8081` with a local PostgreSQL. To run i
 | `PATCH /v1/me`              | Changes the profile; a missing field is unchanged and `null` clears it           |
 | `DELETE /v1/session`        | Signs this phone out of a Google-linked account                                  |
 | `DELETE /v1/me`             | Deletes the account and everything tied to it                                    |
+
+A Google ID token names the client it was issued to in its `aud` claim. On Android, and on iOS when the app passes a server client ID, that is the web (server) client ID the app passes as `serverClientId`, not the Android or iOS client ID. List that web client ID in `GOOGLE_CLIENT_IDS`, plus the iOS client ID if the iOS app requests tokens without a server client ID; otherwise every sign-in is refused with `400`.
 
 [`api/community.openapi.yaml`](api/community.openapi.yaml) is the contract. Requests other than account creation send `Authorization: Bearer <token>`; the service stores only each token's SHA-256. Device-only accounts unused for 13 months are deleted.
 

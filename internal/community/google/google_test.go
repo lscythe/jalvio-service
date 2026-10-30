@@ -232,6 +232,43 @@ func TestVerifyRefreshesForAnUnknownKey(t *testing.T) {
 	}
 }
 
+func TestVerifyFailsFastAfterAFailedFetch(t *testing.T) {
+	var requests atomic.Int32
+	hanging := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(hanging.Close)
+	c := &clock{now: start}
+	v := newVerifier(hanging.URL, c)
+	token := sign(t, newKey(t), "k1", claims(nil))
+
+	began := time.Now()
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Go(func() {
+			if _, err := v.Verify(context.Background(), token); !errors.Is(err, google.ErrUnavailable) {
+				t.Errorf("Verify = %v, want ErrUnavailable", err)
+			}
+		})
+	}
+	wg.Wait()
+	if elapsed := time.Since(began); elapsed > 3*time.Second {
+		t.Errorf("5 concurrent sign-ins took %v, want under 3 s", elapsed)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("key requests = %d, want 1", got)
+	}
+
+	c.advance(time.Minute)
+	if _, err := v.Verify(context.Background(), token); !errors.Is(err, google.ErrUnavailable) {
+		t.Errorf("Verify after the back-off = %v, want ErrUnavailable", err)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Errorf("key requests after the back-off = %d, want 2", got)
+	}
+}
+
 func TestVerifyUnavailable(t *testing.T) {
 	key := newKey(t)
 	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
