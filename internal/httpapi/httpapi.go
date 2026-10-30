@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/lscythe/jalvio-service/internal/catalog"
@@ -57,17 +58,11 @@ type Places interface {
 }
 
 type Deps struct {
-	Info     Info
-	Ready    func() bool
-	Catalogs Catalogs
-	// Feed is nil when the live feed is disabled.
-	Feed  Feed
-	Buses Buses
-	// Demand is nil when the live feed is disabled.
-	Demand Demand
-	// StopInfo is nil when the stop facilities sync is disabled.
-	StopInfo StopInfo
-	// Places is nil when place search is disabled.
+	Info  Info
+	Ready func() bool
+	// Regions are served in this order, each under /v1/regions/{id}/.
+	Regions []Region
+	// Places is nil when place search is disabled; every region shares it.
 	Places Places
 	// Legal is the zero value when the owner publishes no documents.
 	Legal legal.Documents
@@ -77,11 +72,16 @@ type Deps struct {
 }
 
 type statusResponse struct {
-	Version   string        `json:"version"`
-	StartedAt time.Time     `json:"startedAt"`
-	Catalog   catalogStatus `json:"catalog"`
-	Feed      feedStatus    `json:"feed"`
-	Stops     stopsStatus   `json:"stopFacilities"`
+	Version   string         `json:"version"`
+	StartedAt time.Time      `json:"startedAt"`
+	Regions   []regionStatus `json:"regions"`
+}
+
+type regionStatus struct {
+	ID      string        `json:"id"`
+	Catalog catalogStatus `json:"catalog"`
+	Feed    feedStatus    `json:"feed"`
+	Stops   stopsStatus   `json:"stopFacilities"`
 }
 
 type catalogStatus struct {
@@ -124,25 +124,35 @@ func New(d Deps) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, statusResponse{
-			Version:   d.Info.Version,
-			StartedAt: d.Info.StartedAt,
-			Catalog:   catalogStatus(d.Catalogs.Status()),
-			Feed:      newFeedStatus(d.Feed, d.Buses.Len()),
-			Stops:     newStopsStatus(d.StopInfo),
-		})
+		resp := statusResponse{Version: d.Info.Version, StartedAt: d.Info.StartedAt, Regions: make([]regionStatus, 0, len(d.Regions))}
+		for _, r := range d.Regions {
+			resp.Regions = append(resp.Regions, regionStatus{
+				ID:      r.ID,
+				Catalog: catalogStatus(r.Catalogs.Status()),
+				Feed:    newFeedStatus(r.Feed, r.Buses.Len()),
+				Stops:   newStopsStatus(r.StopInfo),
+			})
+		}
+		writeJSON(w, http.StatusOK, resp)
 	})
-	docs := &catalogDocuments{catalogs: d.Catalogs, stopInfo: d.StopInfo}
-	mux.HandleFunc("GET /v1/catalog", docs.serveCatalog)
-	mux.HandleFunc("GET /v1/catalog/shapes", docs.serveShapes)
-	l := &live{catalogs: d.Catalogs, feed: d.Feed, buses: d.Buses, demand: d.Demand}
-	mux.HandleFunc("GET /v1/departures", l.serveDepartures)
-	mux.HandleFunc("GET /v1/buses", l.serveBuses)
-	mux.HandleFunc("GET /v1/buses/{fleetNumber}", l.serveBus)
-	mux.HandleFunc("GET /v1/live", newLiveStream(d).serve)
-	p := &placesHandlers{places: d.Places, catalogs: d.Catalogs}
-	mux.HandleFunc("GET /v1/places", p.serveSearch)
-	mux.HandleFunc("GET /v1/places/reverse", p.serveReverse)
+
+	var openStreams atomic.Int64
+	byID := make(map[string]*regionHandlers, len(d.Regions))
+	for _, r := range d.Regions {
+		byID[r.ID] = newRegionHandlers(r, d, &openStreams)
+	}
+	for pattern, serve := range map[string]func(*regionHandlers, http.ResponseWriter, *http.Request){
+		"/catalog":             func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.docs.serveCatalog(w, r) },
+		"/catalog/shapes":      func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.docs.serveShapes(w, r) },
+		"/departures":          func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.live.serveDepartures(w, r) },
+		"/buses":               func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.live.serveBuses(w, r) },
+		"/buses/{fleetNumber}": func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.live.serveBus(w, r) },
+		"/live":                func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.stream.serve(w, r) },
+		"/places":              func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.places.serveSearch(w, r) },
+		"/places/reverse":      func(rh *regionHandlers, w http.ResponseWriter, r *http.Request) { rh.places.serveReverse(w, r) },
+	} {
+		handleRegional(mux, byID, pattern, serve)
+	}
 	mux.HandleFunc("GET /v1/legal/{document}", (&legalDocuments{docs: d.Legal}).serve)
 	return problemFallback(mux)
 }

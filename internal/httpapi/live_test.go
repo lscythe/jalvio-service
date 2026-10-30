@@ -57,8 +57,8 @@ func liveFleet() *fleet.Fleet {
 func liveHandler(t *testing.T) http.Handler {
 	t.Helper()
 	d := deps(true)
-	d.Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
-	d.Buses = liveFleet()
+	d.Regions[0].Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
+	d.Regions[0].Buses = liveFleet()
 	return httpapi.New(d)
 }
 
@@ -66,9 +66,9 @@ func demandHandler(t *testing.T) (http.Handler, *recordingDemand) {
 	t.Helper()
 	demand := newRecordingDemand()
 	d := deps(true)
-	d.Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
-	d.Buses = liveFleet()
-	d.Demand = demand
+	d.Regions[0].Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
+	d.Regions[0].Buses = liveFleet()
+	d.Regions[0].Demand = demand
 	return httpapi.New(d), demand
 }
 
@@ -81,15 +81,15 @@ func checkTouches(t *testing.T, demand *recordingDemand, want ...mqttfeed.Intere
 
 func TestBusesTouchesTheArea(t *testing.T) {
 	h, demand := demandHandler(t)
-	get(t, h, "/v1/buses?bbox=106.8,-6.2,106.9,-6.1", nil)
+	get(t, h, regionPath+"/buses?bbox=106.8,-6.2,106.9,-6.1", nil)
 	checkTouches(t, demand, mqttfeed.Interest{Areas: []geo.BBox{{West: 106.8, South: -6.2, East: 106.9, North: -6.1}}})
 }
 
 func TestBusesTouchesRouteCodes(t *testing.T) {
 	h, demand := demandHandler(t)
-	get(t, h, "/v1/buses?routes=JAK.18", nil)
-	get(t, h, "/v1/buses?bbox=106.8,-6.2,106.9,-6.1&routes=1", nil)
-	get(t, h, "/v1/buses?routes=NOPE", nil)
+	get(t, h, regionPath+"/buses?routes=JAK.18", nil)
+	get(t, h, regionPath+"/buses?bbox=106.8,-6.2,106.9,-6.1&routes=1", nil)
+	get(t, h, regionPath+"/buses?routes=NOPE", nil)
 	checkTouches(t, demand,
 		mqttfeed.Interest{RouteCodes: []string{"JAK.18"}},
 		mqttfeed.Interest{RouteCodes: []string{"1"}},
@@ -98,21 +98,21 @@ func TestBusesTouchesRouteCodes(t *testing.T) {
 
 func TestDeparturesTouchesRoutesServingStops(t *testing.T) {
 	h, demand := demandHandler(t)
-	get(t, h, "/v1/departures?stops=B00003P,G00002,NOPE", nil)
-	get(t, h, "/v1/departures?stops=NOPE", nil)
+	get(t, h, regionPath+"/departures?stops=B00003P,G00002,NOPE", nil)
+	get(t, h, regionPath+"/departures?stops=NOPE", nil)
 	checkTouches(t, demand, mqttfeed.Interest{RouteCodes: []string{"1", "JAK.18"}})
 }
 
 func TestBusDetailTouchesUnknownFleetNumber(t *testing.T) {
 	h, demand := demandHandler(t)
-	if rec := get(t, h, "/v1/buses/NEW-1", nil); rec.Code != http.StatusNotFound {
+	if rec := get(t, h, regionPath+"/buses/NEW-1", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 	checkTouches(t, demand, mqttfeed.Interest{FleetNumbers: []string{"NEW-1"}})
 }
 
 func TestDepartures(t *testing.T) {
-	rec := get(t, liveHandler(t), "/v1/departures?stops=G00002,B00003P,NOPE", nil)
+	rec := get(t, liveHandler(t), regionPath+"/departures?stops=G00002,B00003P,NOPE", nil)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -138,12 +138,12 @@ func TestDepartures(t *testing.T) {
 
 func TestLiveResponsesReportTheFeed(t *testing.T) {
 	d := deps(true)
-	d.Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
-	d.Buses = liveFleet()
-	d.Feed = fakeFeed{mqttfeed.Status{Connected: true}}
+	d.Regions[0].Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
+	d.Regions[0].Buses = liveFleet()
+	d.Regions[0].Feed = fakeFeed{mqttfeed.Status{Connected: true}}
 	h := httpapi.New(d)
 
-	for _, target := range []string{"/v1/departures?stops=G00002", "/v1/buses?routes=1", "/v1/buses/TST-001"} {
+	for _, target := range []string{regionPath + "/departures?stops=G00002", regionPath + "/buses?routes=1", regionPath + "/buses/TST-001"} {
 		if body := get(t, h, target, nil).Body.String(); !strings.HasPrefix(body, `{"feed":"connected",`) {
 			t.Errorf("%s: body = %s, want feed connected first", target, body)
 		}
@@ -164,7 +164,7 @@ func TestBuses(t *testing.T) {
 	h := liveHandler(t)
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
-			rec := get(t, h, "/v1/buses?"+tt.query, nil)
+			rec := get(t, h, regionPath+"/buses?"+tt.query, nil)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 			}
@@ -208,7 +208,7 @@ func TestBus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.fleetNumber, func(t *testing.T) {
-			rec := get(t, h, "/v1/buses/"+tt.fleetNumber, nil)
+			rec := get(t, h, regionPath+"/buses/"+tt.fleetNumber, nil)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 			}
@@ -220,7 +220,7 @@ func TestBus(t *testing.T) {
 }
 
 func TestUnknownBusIsNotFound(t *testing.T) {
-	rec := get(t, liveHandler(t), "/v1/buses/NOPE-1", nil)
+	rec := get(t, liveHandler(t), regionPath+"/buses/NOPE-1", nil)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -236,16 +236,16 @@ func TestLiveRejectsBadQueries(t *testing.T) {
 		target     string
 		wantDetail string
 	}{
-		{"/v1/departures", "stops"},
-		{"/v1/departures?stops=", "stops"},
-		{"/v1/departures?stops=G00001,,G00002", "stops"},
-		{"/v1/departures?stops=" + strings.Repeat("G00001,", 10) + "G00002", "stops"},
-		{"/v1/buses", "bbox or routes"},
-		{"/v1/buses?bbox=106.8,-6.2,106.9", "bbox"},
-		{"/v1/buses?bbox=106.8,-6.2,east,-6.1", "bbox"},
-		{"/v1/buses?bbox=106.9,-6.2,106.8,-6.1", "bbox"},
-		{"/v1/buses?bbox=106.0,-6.2,107.5,-6.1", "bbox"},
-		{"/v1/buses?routes=1,,2", "routes"},
+		{regionPath + "/departures", "stops"},
+		{regionPath + "/departures?stops=", "stops"},
+		{regionPath + "/departures?stops=G00001,,G00002", "stops"},
+		{regionPath + "/departures?stops=" + strings.Repeat("G00001,", 10) + "G00002", "stops"},
+		{regionPath + "/buses", "bbox or routes"},
+		{regionPath + "/buses?bbox=106.8,-6.2,106.9", "bbox"},
+		{regionPath + "/buses?bbox=106.8,-6.2,east,-6.1", "bbox"},
+		{regionPath + "/buses?bbox=106.9,-6.2,106.8,-6.1", "bbox"},
+		{regionPath + "/buses?bbox=106.0,-6.2,107.5,-6.1", "bbox"},
+		{regionPath + "/buses?routes=1,,2", "routes"},
 	}
 	h := liveHandler(t)
 	for _, tt := range tests {
@@ -264,9 +264,9 @@ func TestLiveRejectsBadQueries(t *testing.T) {
 
 func TestLiveBeforeTheFirstFeed(t *testing.T) {
 	d := deps(true)
-	d.Buses = liveFleet()
+	d.Regions[0].Buses = liveFleet()
 	h := httpapi.New(d)
-	for _, target := range []string{"/v1/departures?stops=G00002", "/v1/buses?routes=1", "/v1/buses/TST-001"} {
+	for _, target := range []string{regionPath + "/departures?stops=G00002", regionPath + "/buses?routes=1", regionPath + "/buses/TST-001"} {
 		if rec := get(t, h, target, nil); rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("%s: status = %d, want %d", target, rec.Code, http.StatusServiceUnavailable)
 		}

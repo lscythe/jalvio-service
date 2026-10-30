@@ -28,8 +28,8 @@ go run ./cmd/jalvio
 | `PHOTON_URL`                 | empty     | Photon geocoder base URL for place search; empty turns it off   |
 | `PHOTON_USER_AGENT`          | empty     | User-Agent naming the operator; required with `PHOTON_URL`      |
 | `PLACES_REQUESTS_PER_MINUTE` | `60`      | Geocoder calls allowed per minute; cached lookups are free      |
-| `MAX_LIVE_CONNECTIONS`       | `2000`    | Open `/v1/live` connections allowed at once                     |
-| `BROWSER_ORIGINS`            | empty     | Space-separated origins allowed on `/v1/live`; empty: apps only |
+| `MAX_LIVE_CONNECTIONS`       | `2000`    | Open live connections allowed at once, across every region      |
+| `BROWSER_ORIGINS`            | empty     | Space-separated origins allowed on `live`; empty: apps only     |
 | `LEGAL_FILE`                 | data dir  | Terms and privacy policy to publish; default `legal.json`       |
 | `JALVIO_LISTEN`              | `:8080`   | HTTP listen address                                             |
 | `JALVIO_DATA_DIR`            | `./data`  | Stored feed, client and device IDs, and snapshots               |
@@ -51,19 +51,24 @@ The image is distroless, runs as a non-root user, and keeps its state in the `/d
 
 | Path                 | Response                                                                                   |
 | -------------------- | ------------------------------------------------------------------------------------------ |
-| `/healthz`           | `204` once a catalog is loaded, `503` before that or while draining                        |
-| `/v1/status`         | Version, start time, catalog, live feed, and stop facilities state                         |
-| `/v1/catalog`        | The whole static network for offline use: routes, stops with facilities, patterns, fares   |
-| `/v1/catalog/shapes` | Encoded polylines for every pattern                                                        |
-| `/v1/departures`     | Live buses expected at up to ten stops, grouped by route and headsign                      |
-| `/v1/buses`          | Live buses in a bounding box, on routes, or both                                           |
-| `/v1/buses/{number}` | One live bus and the stops it is expected at                                               |
-| `/v1/live`           | WebSocket for the map: a snapshot per subscribe (bounding box, routes), then 1 s updates   |
-| `/v1/places`         | Destinations matching a query, in the area the network serves, with OSM attribution        |
-| `/v1/places/reverse` | The address or place at a point                                                            |
+| `/healthz`           | `204` once every region's catalog is loaded, `503` before that or while draining           |
+| `/v1/status`         | Version, start time, and each region's catalog, live feed, and stop facilities state       |
 | `/v1/legal/{name}`   | The owner's `terms` or `privacy` policy, in English or Indonesian (`?lang=id`)             |
 
-[`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. [`api/live.schema.json`](api/live.schema.json) does the same for `/v1/live` frames. The catalog and legal documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
+Everything specific to a region lives under `/v1/regions/{region}`; an unknown region is `404`.
+
+| Path under the region | Response                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| `/catalog`            | The whole static network for offline use: routes, stops with facilities, patterns, fares  |
+| `/catalog/shapes`     | Encoded polylines for every pattern                                                       |
+| `/departures`         | Live buses expected at up to ten stops, grouped by route and headsign                     |
+| `/buses`              | Live buses in a bounding box, on routes, or both                                          |
+| `/buses/{number}`     | One live bus and the stops it is expected at                                              |
+| `/live`               | WebSocket for the map: a snapshot per subscribe (bounding box, routes), then 1 s updates  |
+| `/places`             | Destinations matching a query, in the area the region serves, with OSM attribution        |
+| `/places/reverse`     | The address or place at a point                                                           |
+
+[`api/openapi.yaml`](api/openapi.yaml) is the contract, and tests check every response against it. [`api/live.schema.json`](api/live.schema.json) does the same for `live` frames. The catalog and legal documents carry an ETag and answer a matching `If-None-Match` with `304`, so clients keep them and refresh cheaply. They are gzipped when the client accepts it. Errors are RFC 9457 `application/problem+json`.
 
 The legal documents belong to whoever runs the instance. Write them in `LEGAL_FILE`, starting from [`legal.example.json`](legal.example.json): each document has an `updated` date, an English version, and optionally an Indonesian one, which falls back to English when missing. The file is read at startup, so restart to publish a change; an invalid file stops startup with the field at fault, and without a file both documents return `404`.
 

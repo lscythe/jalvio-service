@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -70,6 +71,16 @@ func TestServeDrainsOnCancel(t *testing.T) {
 		_ = resp.Body.Close()
 		t.Fatal("server still accepting requests after shutdown")
 	}
+}
+
+// UnmarshalJSON reads the first region of /v1/status, the one these tests serve.
+func (s *serviceStatus) UnmarshalJSON(b []byte) error {
+	var body struct{ Regions []json.RawMessage }
+	if err := json.Unmarshal(b, &body); err != nil || len(body.Regions) == 0 {
+		return fmt.Errorf("status without regions: %w", err)
+	}
+	type region serviceStatus
+	return json.Unmarshal(body.Regions[0], (*region)(s))
 }
 
 type serviceStatus struct {
@@ -151,11 +162,11 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 	var catalog struct {
 		FeedVersion string `json:"feedVersion"`
 	}
-	getJSON(t, base+"/v1/catalog", &catalog)
+	getJSON(t, base+"/v1/regions/jakarta/catalog", &catalog)
 	if catalog.FeedVersion != status.Catalog.Version {
 		t.Errorf("catalog feedVersion = %q, want %q", catalog.FeedVersion, status.Catalog.Version)
 	}
-	if code := get(t, base+"/v1/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
+	if code := get(t, base+"/v1/regions/jakarta/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
 		t.Errorf("buses with the feed disabled: status %d, want %d", code, http.StatusOK)
 	}
 
@@ -163,7 +174,7 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 		Feed  string            `json:"feed"`
 		Stops []json.RawMessage `json:"stops"`
 	}
-	getJSON(t, base+"/v1/departures?stops=G00001", &departures)
+	getJSON(t, base+"/v1/regions/jakarta/departures?stops=G00001", &departures)
 	if departures.Feed != "disabled" || len(departures.Stops) != 1 {
 		t.Errorf("departures = %+v, want one stop with the feed disabled", departures)
 	}
@@ -173,7 +184,7 @@ func TestRunServiceClosesLiveStreamsOnShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	base, _ := startService(t, ctx, config.Config{})
 	dialer := websocket.Dialer{Subprotocols: []string{"jalvio.live.v1"}}
-	conn, resp, err := dialer.DialContext(t.Context(), "ws"+strings.TrimPrefix(base, "http")+"/v1/live", nil)
+	conn, resp, err := dialer.DialContext(t.Context(), "ws"+strings.TrimPrefix(base, "http")+"/v1/regions/jakarta/live", nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -209,7 +220,7 @@ func TestRunServiceSearchesPlacesInTheNetworkArea(t *testing.T) {
 			Kind string `json:"kind"`
 		} `json:"places"`
 	}
-	getJSON(t, base+"/v1/places?q=grand", &found)
+	getJSON(t, base+"/v1/regions/jakarta/places?q=grand", &found)
 	if len(found.Places) != 1 || found.Places[0].ID != "osm:W123" || found.Places[0].Kind != "mall" {
 		t.Errorf("places = %+v, want osm:W123, a mall", found.Places)
 	}
@@ -241,7 +252,7 @@ func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
 	if f := status.Feed; f.Filters == nil || *f.Filters != 0 || f.WholeFleet == nil || *f.WholeFleet {
 		t.Errorf("feed filters = %v, wholeFleet = %v, want 0 and false", f.Filters, f.WholeFleet)
 	}
-	if code := get(t, base+"/v1/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
+	if code := get(t, base+"/v1/regions/jakarta/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
 		t.Errorf("buses with the feed configured: status %d, want %d", code, http.StatusOK)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "mqtt-client-id")); err != nil {

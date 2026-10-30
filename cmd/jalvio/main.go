@@ -154,17 +154,16 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 
 	var draining atomic.Bool
 	handler := httpapi.New(httpapi.Deps{
-		Info:     httpapi.Info{Version: version, StartedAt: time.Now().UTC()},
-		Ready:    func() bool { return !draining.Load() && catalogs.Current() != nil },
-		Catalogs: catalogs,
-		Feed:     feed,
-		Buses:    buses,
-		Demand:   demand,
-		StopInfo: stopInfo,
-		Places:   placeSearch,
-		Legal:    legalDocs,
-		Live:     httpapi.LiveConfig{MaxConnections: cfg.MaxLiveConnections, BrowserOrigins: cfg.BrowserOrigins},
-		Done:     ctx.Done(),
+		Info:  httpapi.Info{Version: version, StartedAt: time.Now().UTC()},
+		Ready: func() bool { return !draining.Load() && catalogs.Current() != nil },
+		Regions: []httpapi.Region{{
+			ID: "jakarta", Name: "Jakarta", TimeZone: "Asia/Jakarta",
+			Catalogs: catalogs, Feed: feed, Buses: buses, Demand: demand, StopInfo: stopInfo,
+		}},
+		Places: placeSearch,
+		Legal:  legalDocs,
+		Live:   httpapi.LiveConfig{MaxConnections: cfg.MaxLiveConnections, BrowserOrigins: cfg.BrowserOrigins},
+		Done:   ctx.Done(),
 	})
 
 	var workers sync.WaitGroup

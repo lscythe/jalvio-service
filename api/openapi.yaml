@@ -5,9 +5,12 @@ info:
   description: |
     Public transit data for the Jalvio app. Access is anonymous.
 
-    The app is offline first: it keeps `/v1/catalog` and `/v1/catalog/shapes`
-    on the device, refreshes them with `If-None-Match`, and computes static
-    screens, search, and timetables from them.
+    One instance serves one or more regions (cities). Everything specific to
+    a region lives under `/v1/regions/{region}/`.
+
+    The app is offline first: it keeps a region's `catalog` and
+    `catalog/shapes` on the device, refreshes them with `If-None-Match`, and
+    computes static screens, search, and timetables from them.
 
     JSON is camelCase, times are RFC 3339 in UTC, and coordinates are
     `{lat, lng}`. Errors are RFC 9457 problem details.
@@ -37,14 +40,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/Status"
 
-  /v1/catalog:
+  /v1/regions/{region}/catalog:
     get:
       operationId: getCatalog
-      summary: The whole static network, for offline use
+      summary: A region's whole static network, for offline use
       description: |
         Changes when the feed or the stop facilities change, usually less
         than once a day. Send the stored ETag in `If-None-Match`.
       parameters:
+        - $ref: "#/components/parameters/RegionId"
         - $ref: "#/components/parameters/IfNoneMatch"
       responses:
         "200":
@@ -61,15 +65,18 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
+        "404":
+          $ref: "#/components/responses/UnknownRegion"
         "503":
           $ref: "#/components/responses/NotReady"
 
-  /v1/catalog/shapes:
+  /v1/regions/{region}/catalog/shapes:
     get:
       operationId: getCatalogShapes
-      summary: Route lines for every pattern, for offline use
+      summary: Route lines for every pattern in a region, for offline use
       description: Changes only with the feed. Send the stored ETag in `If-None-Match`.
       parameters:
+        - $ref: "#/components/parameters/RegionId"
         - $ref: "#/components/parameters/IfNoneMatch"
       responses:
         "200":
@@ -86,10 +93,12 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
+        "404":
+          $ref: "#/components/responses/UnknownRegion"
         "503":
           $ref: "#/components/responses/NotReady"
 
-  /v1/departures:
+  /v1/regions/{region}/departures:
     get:
       operationId: getDepartures
       summary: Live departures at up to ten stops
@@ -103,6 +112,7 @@ paths:
         route, stop or bus starts empty and fills within about 10 s as buses
         report.
       parameters:
+        - $ref: "#/components/parameters/RegionId"
         - name: stops
           in: query
           required: true
@@ -118,10 +128,12 @@ paths:
                 $ref: "#/components/schemas/Departures"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/UnknownRegion"
         "503":
           $ref: "#/components/responses/NotReady"
 
-  /v1/buses:
+  /v1/regions/{region}/buses:
     get:
       operationId: listBuses
       summary: Live buses in an area, on routes, or both
@@ -130,6 +142,7 @@ paths:
         route, stop or bus starts empty and fills within about 10 s as buses
         report.
       parameters:
+        - $ref: "#/components/parameters/RegionId"
         - name: bbox
           in: query
           required: false
@@ -151,10 +164,12 @@ paths:
                 $ref: "#/components/schemas/Buses"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/UnknownRegion"
         "503":
           $ref: "#/components/responses/NotReady"
 
-  /v1/buses/{fleetNumber}:
+  /v1/regions/{region}/buses/{fleetNumber}:
     get:
       operationId: getBus
       summary: One live bus and the stops it is expected at
@@ -163,6 +178,7 @@ paths:
         route, stop or bus starts empty and fills within about 10 s as buses
         report, so the first request for a bus can answer 404.
       parameters:
+        - $ref: "#/components/parameters/RegionId"
         - name: fleetNumber
           in: path
           required: true
@@ -176,7 +192,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/BusDetail"
         "404":
-          description: The bus is not reporting.
+          description: The bus is not reporting, or the region is unknown.
           content:
             application/problem+json:
               schema:
@@ -184,10 +200,10 @@ paths:
         "503":
           $ref: "#/components/responses/NotReady"
 
-  /v1/live:
+  /v1/regions/{region}/live:
     get:
       operationId: streamLive
-      summary: Live buses pushed over a WebSocket, for the map
+      summary: A region's live buses pushed over a WebSocket, for the map
       description: |
         Upgrade with subprotocol `jalvio.live.v1`. The frames are described
         in [`live.schema.json`](live.schema.json).
@@ -207,6 +223,7 @@ paths:
 
         Browsers must send an allowed `Origin`; the native apps send none.
       parameters:
+        - $ref: "#/components/parameters/RegionId"
         - name: Sec-WebSocket-Protocol
           in: header
           required: true
@@ -227,6 +244,8 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/UnknownRegion"
         "503":
           description: No catalog has been loaded yet, or the connection limit is reached.
           content:
@@ -234,15 +253,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
 
-  /v1/places:
+  /v1/regions/{region}/places:
     get:
       operationId: searchPlaces
       summary: Destinations (addresses and points of interest) matching a query
       description: |
         Results come from an OpenStreetMap geocoder, limited to the area the
-        network serves. Show `attribution` with them. Stops and routes are
-        searched on the device, in the catalog.
+        region's network serves. Show `attribution` with them. Stops and
+        routes are searched on the device, in the catalog.
       parameters:
+        - $ref: "#/components/parameters/RegionId"
         - name: q
           in: query
           required: true
@@ -272,6 +292,8 @@ paths:
                 $ref: "#/components/schemas/Places"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/UnknownRegion"
         "429":
           $ref: "#/components/responses/PlacesBusy"
         "502":
@@ -279,11 +301,12 @@ paths:
         "503":
           $ref: "#/components/responses/PlacesDisabled"
 
-  /v1/places/reverse:
+  /v1/regions/{region}/places/reverse:
     get:
       operationId: reversePlace
       summary: The address or place at a point
       parameters:
+        - $ref: "#/components/parameters/RegionId"
         - name: at
           in: query
           required: true
@@ -300,7 +323,7 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
-          description: The geocoder knows nothing there.
+          description: The geocoder knows nothing there, or the region is unknown.
           content:
             application/problem+json:
               schema:
@@ -367,6 +390,13 @@ paths:
 
 components:
   parameters:
+    RegionId:
+      name: region
+      in: path
+      required: true
+      description: A region id from `/v1/regions`.
+      schema:
+        type: string
     IfNoneMatch:
       name: If-None-Match
       in: header
@@ -381,6 +411,12 @@ components:
         type: string
 
   responses:
+    UnknownRegion:
+      description: The instance serves no region with this id.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     NotReady:
       description: No catalog has been loaded yet.
       content:
@@ -620,13 +656,26 @@ components:
     Status:
       type: object
       additionalProperties: false
-      required: [version, startedAt, catalog, feed, stopFacilities]
+      required: [version, startedAt, regions]
       properties:
         version:
           type: string
         startedAt:
           type: string
           format: date-time
+        regions:
+          type: array
+          description: Every region the instance serves, in its configured order.
+          items:
+            $ref: "#/components/schemas/RegionStatus"
+
+    RegionStatus:
+      type: object
+      additionalProperties: false
+      required: [id, catalog, feed, stopFacilities]
+      properties:
+        id:
+          type: string
         catalog:
           type: object
           additionalProperties: false

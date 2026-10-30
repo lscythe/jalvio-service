@@ -38,8 +38,8 @@ func fixtureCatalog(t *testing.T) *catalog.Catalog {
 
 func catalogHandler(c *catalog.Catalog, snap *stopinfo.Snapshot) http.Handler {
 	d := deps(true)
-	d.Catalogs = fakeCatalogs{current: c}
-	d.StopInfo = fakeStopInfo{current: snap}
+	d.Regions[0].Catalogs = fakeCatalogs{current: c}
+	d.Regions[0].StopInfo = fakeStopInfo{current: snap}
 	return httpapi.New(d)
 }
 
@@ -54,7 +54,7 @@ func get(t *testing.T, h http.Handler, target string, header http.Header) *httpt
 
 func TestCatalog(t *testing.T) {
 	c := fixtureCatalog(t)
-	rec := get(t, catalogHandler(c, facilities), "/v1/catalog", nil)
+	rec := get(t, catalogHandler(c, facilities), regionPath+"/catalog", nil)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -89,9 +89,9 @@ func TestCatalogWithoutFacilities(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := deps(true)
-			d.Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
-			d.StopInfo = info
-			rec := get(t, httpapi.New(d), "/v1/catalog", nil)
+			d.Regions[0].Catalogs = fakeCatalogs{current: fixtureCatalog(t)}
+			d.Regions[0].StopInfo = info
+			rec := get(t, httpapi.New(d), regionPath+"/catalog", nil)
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -105,7 +105,7 @@ func TestCatalogWithoutFacilities(t *testing.T) {
 
 func TestShapes(t *testing.T) {
 	c := fixtureCatalog(t)
-	rec := get(t, catalogHandler(c, facilities), "/v1/catalog/shapes", nil)
+	rec := get(t, catalogHandler(c, facilities), regionPath+"/catalog/shapes", nil)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -134,7 +134,7 @@ func TestShapes(t *testing.T) {
 }
 
 func TestCatalogDocumentsAreConditional(t *testing.T) {
-	for _, path := range []string{"/v1/catalog", "/v1/catalog/shapes"} {
+	for _, path := range []string{regionPath + "/catalog", regionPath + "/catalog/shapes"} {
 		t.Run(path, func(t *testing.T) {
 			h := catalogHandler(fixtureCatalog(t), facilities)
 			etag := get(t, h, path, nil).Header().Get("ETag")
@@ -171,25 +171,25 @@ func TestCatalogETagFollowsTheData(t *testing.T) {
 		return get(t, catalogHandler(c, snap), path, nil).Header().Get("ETag")
 	}
 
-	first := etag(c, facilities, "/v1/catalog")
-	if again := etag(c, facilities, "/v1/catalog"); again != first {
+	first := etag(c, facilities, regionPath+"/catalog")
+	if again := etag(c, facilities, regionPath+"/catalog"); again != first {
 		t.Error("catalog ETag differs for the same data")
 	}
-	if etag(c, resynced, "/v1/catalog") == first {
+	if etag(c, resynced, regionPath+"/catalog") == first {
 		t.Error("catalog ETag unchanged after a facilities sync")
 	}
-	if etag(other, facilities, "/v1/catalog") == first {
+	if etag(other, facilities, regionPath+"/catalog") == first {
 		t.Error("catalog ETag unchanged for another feed")
 	}
-	if etag(c, facilities, "/v1/catalog/shapes") != etag(c, resynced, "/v1/catalog/shapes") {
+	if etag(c, facilities, regionPath+"/catalog/shapes") != etag(c, resynced, regionPath+"/catalog/shapes") {
 		t.Error("shapes ETag changed with facilities")
 	}
 }
 
 func TestCatalogIsGzipped(t *testing.T) {
 	h := catalogHandler(fixtureCatalog(t), facilities)
-	plain := get(t, h, "/v1/catalog", nil)
-	rec := get(t, h, "/v1/catalog", http.Header{"Accept-Encoding": {"br, gzip"}})
+	plain := get(t, h, regionPath+"/catalog", nil)
+	rec := get(t, h, regionPath+"/catalog", http.Header{"Accept-Encoding": {"br, gzip"}})
 
 	if got := rec.Header().Get("Content-Encoding"); got != "gzip" {
 		t.Fatalf("Content-Encoding = %q, want gzip", got)
@@ -226,7 +226,7 @@ func TestCatalogRealFeed(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	h := catalogHandler(c, nil)
-	for _, target := range []string{"/v1/catalog", "/v1/catalog/shapes"} {
+	for _, target := range []string{regionPath + "/catalog", regionPath + "/catalog/shapes"} {
 		plain := get(t, h, target, nil)
 		gzipped := get(t, h, target, http.Header{"Accept-Encoding": {"gzip"}})
 		t.Logf("%s: %d bytes, %d gzipped", target, plain.Body.Len(), gzipped.Body.Len())
@@ -234,7 +234,7 @@ func TestCatalogRealFeed(t *testing.T) {
 }
 
 func TestCatalogBeforeTheFirstFeed(t *testing.T) {
-	for _, path := range []string{"/v1/catalog", "/v1/catalog/shapes"} {
+	for _, path := range []string{regionPath + "/catalog", regionPath + "/catalog/shapes"} {
 		rec := get(t, catalogHandler(nil, nil), path, nil)
 
 		if rec.Code != http.StatusServiceUnavailable {

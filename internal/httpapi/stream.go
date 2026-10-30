@@ -43,13 +43,14 @@ type liveStream struct {
 	demand   Demand
 	limits   LiveConfig
 	done     <-chan struct{}
-	open     atomic.Int64
+	// open counts connections across every region, which share the limit.
+	open     *atomic.Int64
 	sessions atomic.Int64
 	upgrader websocket.Upgrader
 }
 
-func newLiveStream(d Deps) *liveStream {
-	s := &liveStream{catalogs: d.Catalogs, feed: d.Feed, buses: d.Buses, demand: d.Demand, limits: d.Live, done: d.Done}
+func newLiveStream(r Region, d Deps, open *atomic.Int64) *liveStream {
+	s := &liveStream{catalogs: r.Catalogs, feed: r.Feed, buses: r.Buses, demand: r.Demand, limits: d.Live, done: d.Done, open: open}
 	s.upgrader = websocket.Upgrader{
 		Subprotocols: []string{liveSubprotocol},
 		CheckOrigin:  s.allowOrigin,
