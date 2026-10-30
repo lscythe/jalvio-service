@@ -67,12 +67,55 @@ The image is distroless, runs as a non-root user, and keeps its state in the `/d
 
 The legal documents belong to whoever runs the instance. Write them in `LEGAL_FILE`, starting from [`legal.example.json`](legal.example.json): each document has an `updated` date, an English version, and optionally an Indonesian one, which falls back to English when missing. The file is read at startup, so restart to publish a change; an invalid file stops startup with the field at fault, and without a file both documents return `404`.
 
+## Community service
+
+`cmd/community` is a separate, optional service that gives riders a community identity: a device account created without signing in, an optional Google account linked later without losing anything, and a display name and avatar. It stores accounts in PostgreSQL and holds no email or Google profile data. Transit stays anonymous and never calls it.
+
+```sh
+docker compose --profile community up -d --build
+```
+
+This runs the community service on port `8081` with a local PostgreSQL. To run it from source, start the database with `mise run community-db` and set `COMMUNITY_DATABASE_URL`.
+
+| Variable                      | Default  | Purpose                                                                 |
+| ----------------------------- | -------- | ----------------------------------------------------------------------- |
+| `COMMUNITY_DATABASE_URL`      | required | PostgreSQL connection string; a remote host needs `sslmode=verify-full` |
+| `COMMUNITY_DB_MAX_CONNS`      | `5`      | Connection pool size; hosted plans cap connections                      |
+| `GOOGLE_CLIENT_IDS`           | empty    | Client IDs the app requests ID tokens for; empty turns sign-in off      |
+| `GOOGLE_KEYS_URL`             | empty    | Google's public key set URL; required with `GOOGLE_CLIENT_IDS`          |
+| `COMMUNITY_ACCOUNTS_PER_HOUR` | `10`     | Device accounts one client address may create per hour                  |
+| `COMMUNITY_LISTEN`            | `:8081`  | HTTP listen address                                                     |
+
+| Method and path             | Response                                                                         |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `GET /healthz`              | `204` once the database is reachable, `503` otherwise or while draining          |
+| `POST /v1/accounts`         | `201` with a token for a new device account                                      |
+| `POST /v1/session/google`   | Links the account to a Google ID token, or merges it into the linked account     |
+| `GET /v1/me`                | The rider's display name, avatar, whether Google is linked, and creation time    |
+| `PATCH /v1/me`              | Changes the profile; a missing field is unchanged and `null` clears it           |
+| `DELETE /v1/session`        | Signs this phone out of a Google-linked account                                  |
+| `DELETE /v1/me`             | Deletes the account and everything tied to it                                    |
+
+A Google ID token names the client it was issued to in its `aud` claim. On Android, and on iOS when the app passes a server client ID, that is the web (server) client ID the app passes as `serverClientId`, not the Android or iOS client ID. List that web client ID in `GOOGLE_CLIENT_IDS`, plus the iOS client ID if the iOS app requests tokens without a server client ID; otherwise every sign-in is refused with `400`.
+
+[`api/community.openapi.yaml`](api/community.openapi.yaml) is the contract. Requests other than account creation send `Authorization: Bearer <token>`; the service stores only each token's SHA-256. Device-only accounts unused for 13 months are deleted.
+
+Migrations are embedded and run at startup, so a new database sets itself up. They use plain PostgreSQL 13+ features in a dedicated `community` schema, so a hosted PostgreSQL such as Supabase works as a database and moves to a self-hosted one with a dump and restore:
+
+- Every table has row-level security on and no policies, so a hosted provider's generated APIs read nothing, even if the schema is exposed. The service connects as the table owner and is unaffected.
+- Use Supabase's session-mode pooler URL. Transaction mode also needs `default_query_exec_mode=simple_protocol` in the URL. The direct connection is IPv6-only on most plans.
+- `sslmode=verify-full` needs the provider's CA certificate: download it from the database settings and point `sslrootcert` at it. Keep it with the deployment configuration, not in the repository.
+- Supabase's free plan pauses projects after about a week without activity.
+
 ## Develop
 
 ```sh
-lefthook install # git hooks: format, lint, tests, commit message
-mise run check   # format, lint, race tests, coverage gate, vulnerability scan
+lefthook install      # git hooks: format, lint, tests, commit message
+mise run community-db # local PostgreSQL for the community tests
+mise run check        # format, lint, race tests, coverage gate, vulnerability scan
 ```
+
+The community store tests use the database `mise run community-db` starts, creating and dropping one database per test. Without it they skip, and the coverage gate then fails for those packages; CI always runs them against a PostgreSQL service container.
 
 `mise run live` checks the real upstreams named in the environment: one GTFS download, 15 s of the broker (`LIVE_MQTT_DURATION`), one stop API name search, and one Photon search (`PHOTON_URL`, `PHOTON_USER_AGENT`, `LIVE_PLACE_QUERY`). Each check skips when its settings are missing, and output is counts only. CI never runs it.
 

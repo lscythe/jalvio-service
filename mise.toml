@@ -5,6 +5,10 @@ go = "1.27.3"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.7.0"
 lefthook = "2.1.14"
 
+[env]
+# Local fixture credentials for the community store tests; never a real database.
+COMMUNITY_TEST_DATABASE_URL = "postgres://community:community@localhost:55432/community?sslmode=disable"
+
 [tasks.fmt]
 run = "gofumpt -w ."
 
@@ -32,6 +36,10 @@ run = [
 description = "Require tests in every package and 80% coverage outside cmd/"
 depends = ["cover"]
 run = "go run ./cmd/covergate"
+
+[tasks.community-db]
+description = "Start the local PostgreSQL the community tests use"
+run = "docker compose --profile community up -d --wait community-db"
 
 [tasks.vuln]
 run = "govulncheck ./..."

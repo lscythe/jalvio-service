@@ -9,11 +9,13 @@ ARG VERSION=dev
 ARG TARGETOS=linux
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /out/jalvio ./cmd/jalvio \
+    go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /out/ ./cmd/jalvio ./cmd/community \
     && mkdir /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/jalvio /jalvio
+# The community service runs from the same image with entrypoint /community.
+COPY --from=build /out/community /community
 # A new named volume takes this directory's ownership, so the nonroot user can write to it.
 COPY --from=build --chown=nonroot:nonroot /out/data /data
 ENV JALVIO_LISTEN=:8080 JALVIO_DATA_DIR=/data
