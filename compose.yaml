@@ -16,6 +16,37 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
 
+  community:
+    profiles: [community]
+    build:
+      context: .
+      args:
+        VERSION: ${JALVIO_VERSION:-dev}
+    image: jalvio-service:${JALVIO_VERSION:-dev}
+    entrypoint: ["/community"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Set COMMUNITY_DATABASE_URL in .env to use a hosted database instead.
+      COMMUNITY_DATABASE_URL: ${COMMUNITY_DATABASE_URL:-postgres://community:community@community-db:5432/community?sslmode=disable}
+    ports:
+      - "${COMMUNITY_PORT:-8081}:8081"
+    depends_on:
+      community-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/community", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    stop_grace_period: 15s
+
   community-db:
     profiles: [community]
     image: postgres:17@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f
