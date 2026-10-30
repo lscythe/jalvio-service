@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -72,6 +73,16 @@ func TestServeDrainsOnCancel(t *testing.T) {
 	}
 }
 
+// UnmarshalJSON reads the first region of /v1/status, the one these tests serve.
+func (s *serviceStatus) UnmarshalJSON(b []byte) error {
+	var body struct{ Regions []json.RawMessage }
+	if err := json.Unmarshal(b, &body); err != nil || len(body.Regions) == 0 {
+		return fmt.Errorf("status without regions: %w", err)
+	}
+	type region serviceStatus
+	return json.Unmarshal(body.Regions[0], (*region)(s))
+}
+
 type serviceStatus struct {
 	Catalog struct {
 		Version string `json:"version"`
@@ -87,10 +98,36 @@ type serviceStatus struct {
 	} `json:"stopFacilities"`
 }
 
-// startService runs the service until ctx is cancelled or the test ends,
-// against a local copy of the fixture feed and the upstreams set in cfg, and
-// waits until it is ready.
-func startService(t *testing.T, ctx context.Context, cfg config.Config) (base, dataDir string) {
+// testRegion is one entry of the regions file startService writes; an empty
+// gtfs.url points at the fixture feed.
+type testRegion struct {
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	TimeZone       string            `json:"timeZone"`
+	GTFS           map[string]string `json:"gtfs"`
+	Live           map[string]string `json:"live,omitempty"`
+	StopFacilities map[string]string `json:"stopFacilities,omitempty"`
+}
+
+func jakarta() testRegion {
+	return testRegion{ID: "jakarta", Name: "Jakarta", TimeZone: "Asia/Jakarta"}
+}
+
+func writeRegions(t *testing.T, path string, regions []testRegion) {
+	t.Helper()
+	b, err := json.Marshal(map[string][]testRegion{"regions": regions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// launchService runs the service until ctx is cancelled or the test ends,
+// serving regions (Jakarta when none are given) against a local copy of the
+// fixture feed and the upstreams set in cfg.
+func launchService(t *testing.T, ctx context.Context, cfg config.Config, regions ...testRegion) (base, dataDir string) {
 	t.Helper()
 	feed := catalogtest.Feed(t, nil)
 	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -98,15 +135,22 @@ func startService(t *testing.T, ctx context.Context, cfg config.Config) (base, d
 	}))
 	t.Cleanup(feedServer.Close)
 
-	dataDir = filepath.Join(t.TempDir(), "data")
+	if len(regions) == 0 {
+		regions = []testRegion{jakarta()}
+	}
+	for i := range regions {
+		if regions[i].GTFS["url"] == "" {
+			regions[i].GTFS = map[string]string{"url": feedServer.URL, "refresh": "1h"}
+		}
+	}
+	dir := t.TempDir()
+	dataDir = filepath.Join(dir, "data")
 	cfg.DataDir = dataDir
+	cfg.RegionsFile = filepath.Join(dir, "regions.json")
+	writeRegions(t, cfg.RegionsFile, regions)
 	if cfg.LegalFile == "" {
 		cfg.LegalFile = filepath.Join(dataDir, "legal.json")
 	}
-	cfg.GTFSURL = feedServer.URL
-	cfg.GTFSRefresh = time.Hour
-	cfg.StopAPIAppVersion = "1.0.0"
-	cfg.StopInfoSyncAt = 3 * time.Hour
 	cfg.MaxLiveConnections = 10
 	cfg.PhotonUserAgent = "jalvio-test"
 	cfg.PlacesRequestsPerMinute = 60
@@ -119,7 +163,13 @@ func startService(t *testing.T, ctx context.Context, cfg config.Config) (base, d
 		cancel()
 		waitDone(t, done)
 	})
+	return base, dataDir
+}
 
+// startService launches the service and waits until it is ready.
+func startService(t *testing.T, ctx context.Context, cfg config.Config, regions ...testRegion) (base, dataDir string) {
+	t.Helper()
+	base, dataDir = launchService(t, ctx, cfg, regions...)
 	deadline := time.Now().Add(5 * time.Second)
 	for get(t, base+"/healthz") != http.StatusNoContent {
 		if time.Now().After(deadline) {
@@ -128,6 +178,82 @@ func startService(t *testing.T, ctx context.Context, cfg config.Config) (base, d
 		time.Sleep(10 * time.Millisecond)
 	}
 	return base, dataDir
+}
+
+func TestRunServiceLoadsEveryRegion(t *testing.T) {
+	a := testRegion{ID: "a", Name: "A", TimeZone: "Asia/Jakarta"}
+	b := testRegion{ID: "b", Name: "B", TimeZone: "Asia/Makassar"}
+	base, dataDir := startService(t, t.Context(), config.Config{}, a, b)
+
+	for _, id := range []string{"a", "b"} {
+		if code := get(t, base+"/v1/regions/"+id+"/catalog"); code != http.StatusOK {
+			t.Errorf("region %s catalog: status %d, want %d", id, code, http.StatusOK)
+		}
+		if _, err := os.Stat(filepath.Join(dataDir, "regions", id, "gtfs.zip")); err != nil {
+			t.Errorf("region %s feed not stored: %v", id, err)
+		}
+	}
+	var list struct {
+		Regions []struct {
+			ID       string `json:"id"`
+			TimeZone string `json:"timeZone"`
+		} `json:"regions"`
+	}
+	getJSON(t, base+"/v1/regions", &list)
+	if len(list.Regions) != 2 || list.Regions[0].ID != "a" || list.Regions[1].ID != "b" || list.Regions[1].TimeZone != "Asia/Makassar" {
+		t.Errorf("regions = %+v, want a then b in Asia/Makassar", list.Regions)
+	}
+}
+
+func TestRunServiceStaysUnreadyUntilEveryRegionLoads(t *testing.T) {
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(broken.Close)
+	a := testRegion{ID: "a", Name: "A", TimeZone: "Asia/Jakarta"}
+	b := testRegion{ID: "b", Name: "B", TimeZone: "Asia/Jakarta", GTFS: map[string]string{"url": broken.URL}}
+	base, _ := launchService(t, t.Context(), config.Config{}, a, b)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for get(t, base+"/v1/regions/a/catalog") != http.StatusOK {
+		if time.Now().After(deadline) {
+			t.Fatal("region a never loaded its catalog")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if code := get(t, base+"/healthz"); code != http.StatusServiceUnavailable {
+		t.Errorf("healthz with region b unloaded: status %d, want %d", code, http.StatusServiceUnavailable)
+	}
+}
+
+// runServiceBriefly runs a service that is expected to fail at startup,
+// bounded, since one that started would serve until cancelled.
+func runServiceBriefly(t *testing.T, cfg config.Config) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	cfg.DataDir = filepath.Join(t.TempDir(), "data")
+	if cfg.LegalFile == "" {
+		cfg.LegalFile = filepath.Join(cfg.DataDir, "legal.json")
+	}
+	return runService(ctx, cfg, listen(t), discard)
+}
+
+func TestRunServiceRejectsAnInvalidRegionsFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "regions.json")
+	writeRegions(t, path, []testRegion{{ID: "Jakarta", Name: "Jakarta", TimeZone: "Asia/Jakarta", GTFS: map[string]string{"url": "http://127.0.0.1:1/feed.zip"}}})
+	err := runServiceBriefly(t, config.Config{RegionsFile: path})
+	if err == nil || !strings.Contains(err.Error(), "regions[0].id") {
+		t.Errorf("runService = %v, want an error about regions[0].id", err)
+	}
+}
+
+func TestRunServiceRequiresARegionsFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.json")
+	err := runServiceBriefly(t, config.Config{RegionsFile: path})
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Errorf("runService = %v, want an error naming %s", err, path)
+	}
 }
 
 func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
@@ -144,18 +270,18 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 	if status.StopFacilities.State != "disabled" {
 		t.Errorf("stop facilities state = %q, want disabled", status.StopFacilities.State)
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, "gtfs.zip")); err != nil {
+	if _, err := os.Stat(filepath.Join(dataDir, "regions", "jakarta", "gtfs.zip")); err != nil {
 		t.Errorf("feed not stored: %v", err)
 	}
 
 	var catalog struct {
 		FeedVersion string `json:"feedVersion"`
 	}
-	getJSON(t, base+"/v1/catalog", &catalog)
+	getJSON(t, base+"/v1/regions/jakarta/catalog", &catalog)
 	if catalog.FeedVersion != status.Catalog.Version {
 		t.Errorf("catalog feedVersion = %q, want %q", catalog.FeedVersion, status.Catalog.Version)
 	}
-	if code := get(t, base+"/v1/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
+	if code := get(t, base+"/v1/regions/jakarta/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
 		t.Errorf("buses with the feed disabled: status %d, want %d", code, http.StatusOK)
 	}
 
@@ -163,7 +289,7 @@ func TestRunServiceLoadsFeedAndBecomesReady(t *testing.T) {
 		Feed  string            `json:"feed"`
 		Stops []json.RawMessage `json:"stops"`
 	}
-	getJSON(t, base+"/v1/departures?stops=G00001", &departures)
+	getJSON(t, base+"/v1/regions/jakarta/departures?stops=G00001", &departures)
 	if departures.Feed != "disabled" || len(departures.Stops) != 1 {
 		t.Errorf("departures = %+v, want one stop with the feed disabled", departures)
 	}
@@ -173,7 +299,7 @@ func TestRunServiceClosesLiveStreamsOnShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	base, _ := startService(t, ctx, config.Config{})
 	dialer := websocket.Dialer{Subprotocols: []string{"jalvio.live.v1"}}
-	conn, resp, err := dialer.DialContext(t.Context(), "ws"+strings.TrimPrefix(base, "http")+"/v1/live", nil)
+	conn, resp, err := dialer.DialContext(t.Context(), "ws"+strings.TrimPrefix(base, "http")+"/v1/regions/jakarta/live", nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -209,7 +335,7 @@ func TestRunServiceSearchesPlacesInTheNetworkArea(t *testing.T) {
 			Kind string `json:"kind"`
 		} `json:"places"`
 	}
-	getJSON(t, base+"/v1/places?q=grand", &found)
+	getJSON(t, base+"/v1/regions/jakarta/places?q=grand", &found)
 	if len(found.Places) != 1 || found.Places[0].ID != "osm:W123" || found.Places[0].Kind != "mall" {
 		t.Errorf("places = %+v, want osm:W123, a mall", found.Places)
 	}
@@ -231,7 +357,9 @@ func TestRunServiceSearchesPlacesInTheNetworkArea(t *testing.T) {
 }
 
 func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
-	base, dataDir := startService(t, t.Context(), config.Config{MQTTURL: "wss://127.0.0.1:1/mqtt"})
+	region := jakarta()
+	region.Live = map[string]string{"mqttUrl": "wss://127.0.0.1:1/mqtt"}
+	base, dataDir := startService(t, t.Context(), config.Config{}, region)
 
 	var status serviceStatus
 	getJSON(t, base+"/v1/status", &status)
@@ -241,10 +369,10 @@ func TestRunServiceStartsLiveFeedWithoutBlockingReadiness(t *testing.T) {
 	if f := status.Feed; f.Filters == nil || *f.Filters != 0 || f.WholeFleet == nil || *f.WholeFleet {
 		t.Errorf("feed filters = %v, wholeFleet = %v, want 0 and false", f.Filters, f.WholeFleet)
 	}
-	if code := get(t, base+"/v1/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
+	if code := get(t, base+"/v1/regions/jakarta/buses?bbox=106.8,-6.2,106.9,-6.1"); code != http.StatusOK {
 		t.Errorf("buses with the feed configured: status %d, want %d", code, http.StatusOK)
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, "mqtt-client-id")); err != nil {
+	if _, err := os.Stat(filepath.Join(dataDir, "regions", "jakarta", "mqtt-client-id")); err != nil {
 		t.Errorf("client ID not stored: %v", err)
 	}
 }
@@ -272,7 +400,9 @@ func TestRunServiceSyncsStopFacilities(t *testing.T) {
 	stopSearchGap, stopDetailGap = 0, 0
 	t.Cleanup(func() { stopSearchGap, stopDetailGap = searchGap, detailGap })
 
-	base, dataDir := startService(t, t.Context(), config.Config{StopAPIURL: stopAPI(t)})
+	region := jakarta()
+	region.StopFacilities = map[string]string{"url": stopAPI(t), "appVersion": "1.0.0"}
+	base, dataDir := startService(t, t.Context(), config.Config{}, region)
 
 	var status serviceStatus
 	deadline := time.Now().Add(5 * time.Second)
@@ -283,7 +413,7 @@ func TestRunServiceSyncsStopFacilities(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	for _, name := range []string{"device-id", "stopinfo.json"} {
-		if _, err := os.Stat(filepath.Join(dataDir, name)); err != nil {
+		if _, err := os.Stat(filepath.Join(dataDir, "regions", "jakarta", name)); err != nil {
 			t.Errorf("%s not stored: %v", name, err)
 		}
 	}
@@ -323,16 +453,7 @@ func TestRunServiceRejectsAnInvalidLegalFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"terms": {"updated": "soon"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{
-		DataDir:   filepath.Join(t.TempDir(), "data"),
-		GTFSURL:   "http://127.0.0.1:1/feed.zip",
-		LegalFile: path,
-	}
-	// Bounded, since a service that accepted the file would serve until
-	// cancelled.
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	err := runService(ctx, cfg, listen(t), discard)
+	err := runServiceBriefly(t, config.Config{LegalFile: path})
 	if err == nil || !strings.Contains(err.Error(), "terms.updated") {
 		t.Errorf("runService = %v, want an error about terms.updated", err)
 	}

@@ -9,23 +9,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
-	_ "time/tzdata" // lets TZ name a zone in images without zoneinfo
+	_ "time/tzdata" // lets a region name its time zone in images without zoneinfo
 
-	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/config"
-	"github.com/lscythe/jalvio-service/internal/fleet"
-	"github.com/lscythe/jalvio-service/internal/geo"
 	"github.com/lscythe/jalvio-service/internal/httpapi"
 	"github.com/lscythe/jalvio-service/internal/legal"
-	"github.com/lscythe/jalvio-service/internal/mqttfeed"
 	"github.com/lscythe/jalvio-service/internal/places"
-	"github.com/lscythe/jalvio-service/internal/stopapi"
-	"github.com/lscythe/jalvio-service/internal/stopinfo"
+	"github.com/lscythe/jalvio-service/internal/regions"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -43,9 +37,6 @@ const (
 	placesTimeout      = 3 * time.Second
 	placesCacheSize    = 10000
 	placesCacheTTL     = 24 * time.Hour
-	// placesAreaMargin (about 10 km) keeps destinations just past the last
-	// stop searchable.
-	placesAreaMargin = 0.1
 )
 
 // Upstream request spacing for the stop facilities sync; tests shorten it.
@@ -93,69 +84,30 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 	if err != nil {
 		return errors.Join(err, ln.Close())
 	}
-	fetcher := catalog.NewHTTPFetcher(&http.Client{Timeout: feedFetchTimeout}, cfg.GTFSURL, "jalvio-service/"+version)
-	catalogs := catalog.NewSource(fetcher, filepath.Join(cfg.DataDir, "gtfs.zip"), logger)
-	if err := catalogs.Load(); err != nil {
-		logger.Warn("ignoring stored feed", "error", err)
+	configured, err := regions.Load(cfg.RegionsFile)
+	if err != nil {
+		return errors.Join(err, ln.Close())
 	}
 
-	buses := fleet.New()
-	var feed httpapi.Feed
-	// Assigned only with a live feed, so a disabled feed leaves a nil
-	// interface rather than a typed nil.
-	var demand httpapi.Demand
-	var live *mqttfeed.Feed
-	if cfg.MQTTURL != "" {
-		clientID, err := mqttfeed.LoadOrCreateClientID(filepath.Join(cfg.DataDir, "mqtt-client-id"), cfg.MQTTClientIDPrefix)
+	// Workers stop before runService returns, including when a later region
+	// fails to start.
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	ctx, stopWorkers := context.WithCancel(ctx)
+	defer stopWorkers()
+	served := make([]httpapi.Region, 0, len(configured))
+	for _, r := range configured {
+		region, err := startRegion(ctx, r, cfg.DataDir, &workers, logger)
 		if err != nil {
 			return errors.Join(err, ln.Close())
 		}
-		watched := mqttfeed.NewDemand(time.Now)
-		live = mqttfeed.New(mqttfeed.Config{
-			URL:           cfg.MQTTURL,
-			TLSServerName: cfg.MQTTServerName,
-			DialAddress:   cfg.MQTTDialAddress,
-			ClientID:      clientID,
-		}, buses, watched, logger)
-		feed = live
-		demand = watched
-	}
-
-	var stopInfo httpapi.StopInfo
-	var stops *stopinfo.Syncer
-	if cfg.StopAPIURL != "" {
-		deviceID, err := stopapi.LoadOrCreateDeviceID(filepath.Join(cfg.DataDir, "device-id"))
-		if err != nil {
-			return errors.Join(err, ln.Close())
-		}
-		api := stopapi.New(&http.Client{Timeout: stopAPITimeout}, stopapi.Config{
-			BaseURL:    cfg.StopAPIURL,
-			AppVersion: cfg.StopAPIAppVersion,
-			DeviceID:   deviceID,
-			UserAgent:  "jalvio-service/" + version,
-		})
-		stops = stopinfo.New(api, catalogs, stopinfo.Config{
-			Path:      filepath.Join(cfg.DataDir, "stopinfo.json"),
-			SearchGap: stopSearchGap,
-			DetailGap: stopDetailGap,
-		}, logger)
-		if err := stops.Load(); err != nil {
-			logger.Warn("ignoring stored stop facilities", "error", err)
-		}
-		stopInfo = stops
+		served = append(served, region)
 	}
 
 	var placeSearch httpapi.Places
 	if cfg.PhotonURL != "" {
 		photon := places.NewPhoton(&http.Client{Timeout: placesTimeout}, cfg.PhotonURL, cfg.PhotonUserAgent)
-		area := func() (geo.BBox, bool) {
-			c := catalogs.Current()
-			if c == nil {
-				return geo.BBox{}, false
-			}
-			return c.Bounds().Pad(placesAreaMargin), true
-		}
-		placeSearch = places.NewService(photon, area, places.Config{
+		placeSearch = places.NewService(photon, places.Config{
 			RequestsPerMinute: cfg.PlacesRequestsPerMinute,
 			CacheSize:         placesCacheSize,
 			CacheTTL:          placesCacheTTL,
@@ -165,39 +117,24 @@ func runService(ctx context.Context, cfg config.Config, ln net.Listener, logger 
 
 	var draining atomic.Bool
 	handler := httpapi.New(httpapi.Deps{
-		Info:     httpapi.Info{Version: version, StartedAt: time.Now().UTC()},
-		Ready:    func() bool { return !draining.Load() && catalogs.Current() != nil },
-		Catalogs: catalogs,
-		Feed:     feed,
-		Buses:    buses,
-		Demand:   demand,
-		StopInfo: stopInfo,
-		Places:   placeSearch,
-		Legal:    legalDocs,
-		Live:     httpapi.LiveConfig{MaxConnections: cfg.MaxLiveConnections, BrowserOrigins: cfg.BrowserOrigins},
-		Done:     ctx.Done(),
+		Info:    httpapi.Info{Version: version, StartedAt: time.Now().UTC()},
+		Ready:   func() bool { return !draining.Load() && everyCatalogLoaded(served) },
+		Regions: served,
+		Places:  placeSearch,
+		Legal:   legalDocs,
+		Live:    httpapi.LiveConfig{MaxConnections: cfg.MaxLiveConnections, BrowserOrigins: cfg.BrowserOrigins},
+		Done:    ctx.Done(),
 	})
-
-	var workers sync.WaitGroup
-	workers.Go(func() { catalogs.Run(ctx, cfg.GTFSRefresh, feedRetryDelay) })
-	workers.Go(func() { buses.Run(ctx, busFlushInterval, busExpireEvery) })
-	if live != nil {
-		workers.Go(func() { live.Run(ctx) })
-	}
-	if stops != nil {
-		syncAt := stopinfo.DailyAt(int(cfg.StopInfoSyncAt/time.Hour), int(cfg.StopInfoSyncAt%time.Hour/time.Minute))
-		workers.Go(func() {
-			// The sync matches against the catalog, so it waits for one.
-			select {
-			case <-catalogs.Loaded():
-				stops.Run(ctx, syncAt, stopRetryDelay)
-			case <-ctx.Done():
-			}
-		})
-	}
-	defer workers.Wait()
-
 	return serve(ctx, ln, handler, &draining, logger)
+}
+
+func everyCatalogLoaded(served []httpapi.Region) bool {
+	for _, r := range served {
+		if r.Catalogs.Current() == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // serve handles requests on ln until ctx is cancelled, then sets draining and

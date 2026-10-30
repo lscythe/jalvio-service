@@ -32,7 +32,6 @@ type Config struct {
 // Callers must not modify the returned slices.
 type Service struct {
 	provider Provider
-	area     func() (geo.BBox, bool)
 	timeout  time.Duration
 	limiter  *rate.Limiter
 	flights  singleflight.Group
@@ -40,12 +39,9 @@ type Service struct {
 	reverses *cache[Place]
 }
 
-// NewService biases searches to the area reported by area, which may be
-// unknown until the catalog loads.
-func NewService(provider Provider, area func() (geo.BBox, bool), cfg Config) *Service {
+func NewService(provider Provider, cfg Config) *Service {
 	return &Service{
 		provider: provider,
-		area:     area,
 		timeout:  cfg.Timeout,
 		limiter:  rate.NewLimiter(rate.Limit(float64(cfg.RequestsPerMinute)/60), max(1, cfg.RequestsPerMinute/6)),
 		searches: newCache[[]Place](cfg.CacheSize, cfg.CacheTTL),
@@ -53,7 +49,9 @@ func NewService(provider Provider, area func() (geo.BBox, bool), cfg Config) *Se
 	}
 }
 
-func (s *Service) Search(ctx context.Context, text string, near *geo.Point, limit int) ([]Place, error) {
+// Search biases a lookup to area; the zero area means none, as before a
+// region's catalog loads.
+func (s *Service) Search(ctx context.Context, area geo.BBox, text string, near *geo.Point, limit int) ([]Place, error) {
 	text = strings.Join(strings.Fields(strings.ToLower(text)), " ")
 	if utf8.RuneCountInString(text) < minQueryLength {
 		return nil, ErrQueryTooShort
@@ -62,13 +60,13 @@ func (s *Service) Search(ctx context.Context, text string, near *geo.Point, limi
 		limit = DefaultLimit
 	}
 	q := Query{Text: text, Near: near, Limit: min(limit, MaxLimit)}
-	if area, ok := s.area(); ok {
+	if area != (geo.BBox{}) {
 		q.Area = area
 		if q.Near == nil {
 			q.Near = &geo.Point{Lat: (area.South + area.North) / 2, Lon: (area.West + area.East) / 2}
 		}
 	}
-	key := fmt.Sprintf("search|%s|%d|%s", q.Text, q.Limit, roundedPoint(q.Near, 3))
+	key := fmt.Sprintf("search|%s|%d|%s|%s", q.Text, q.Limit, roundedPoint(q.Near, 3), roundedArea(q.Area))
 	return lookup(ctx, s, s.searches, key, func(ctx context.Context) ([]Place, error) {
 		return s.provider.Search(ctx, q)
 	})
@@ -120,4 +118,8 @@ func roundedPoint(p *geo.Point, decimals int) string {
 		return "-"
 	}
 	return fmt.Sprintf("%.*f,%.*f", decimals, p.Lat, decimals, p.Lon)
+}
+
+func roundedArea(b geo.BBox) string {
+	return fmt.Sprintf("%.3f,%.3f,%.3f,%.3f", b.West, b.South, b.East, b.North)
 }

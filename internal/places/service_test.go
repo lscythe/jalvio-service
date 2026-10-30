@@ -57,8 +57,6 @@ func (f *fakeProvider) calls() int {
 
 var area = geo.BBox{West: 106.5, South: -6.5, East: 107, North: -6}
 
-func knownArea() (geo.BBox, bool) { return area, true }
-
 var testConfig = places.Config{
 	RequestsPerMinute: 600,
 	CacheSize:         100,
@@ -71,14 +69,14 @@ func newService(p places.Provider, mutate ...func(*places.Config)) *places.Servi
 	for _, m := range mutate {
 		m(&cfg)
 	}
-	return places.NewService(p, knownArea, cfg)
+	return places.NewService(p, cfg)
 }
 
 func TestSearchRejectsShortQueries(t *testing.T) {
 	p := &fakeProvider{}
 	s := newService(p)
 	for _, text := range []string{"", "ab", "   ab  "} {
-		if _, err := s.Search(t.Context(), text, nil, 5); !errors.Is(err, places.ErrQueryTooShort) {
+		if _, err := s.Search(t.Context(), area, text, nil, 5); !errors.Is(err, places.ErrQueryTooShort) {
 			t.Errorf("Search(%q) err = %v, want ErrQueryTooShort", text, err)
 		}
 	}
@@ -93,27 +91,27 @@ func TestSearchBuildsBiasedQuery(t *testing.T) {
 		name  string
 		near  *geo.Point
 		limit int
-		area  func() (geo.BBox, bool)
+		area  geo.BBox
 		want  places.Query
 	}{
 		{
-			name: "near the user", near: &near, limit: 5, area: knownArea,
+			name: "near the user", near: &near, limit: 5, area: area,
 			want: places.Query{Text: "grand mall", Near: &near, Area: area, Limit: 5},
 		},
 		{
-			name: "centre of the service area", limit: 0, area: knownArea,
+			name: "centre of the given area", limit: 0, area: area,
 			want: places.Query{Text: "grand mall", Near: &geo.Point{Lat: -6.25, Lon: 106.75}, Area: area, Limit: places.DefaultLimit},
 		},
 		{
-			name: "no area yet", limit: 100, area: func() (geo.BBox, bool) { return geo.BBox{}, false },
+			name: "no area", limit: 100,
 			want: places.Query{Text: "grand mall", Limit: places.MaxLimit},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &fakeProvider{}
-			s := places.NewService(p, tt.area, testConfig)
-			if _, err := s.Search(t.Context(), "  Grand   MALL ", tt.near, tt.limit); err != nil {
+			s := places.NewService(p, testConfig)
+			if _, err := s.Search(t.Context(), tt.area, "  Grand   MALL ", tt.near, tt.limit); err != nil {
 				t.Fatalf("Search: %v", err)
 			}
 			got := p.queries[0]
@@ -140,7 +138,7 @@ func TestSearchIsCached(t *testing.T) {
 		{"grand mall", &elsewhere},
 		{"grand mall", &elsewhere},
 	} {
-		got, err := s.Search(t.Context(), call.text, call.near, 5)
+		got, err := s.Search(t.Context(), area, call.text, call.near, 5)
 		if err != nil || len(got) != 1 {
 			t.Fatalf("Search = %v, %v", got, err)
 		}
@@ -150,12 +148,29 @@ func TestSearchIsCached(t *testing.T) {
 	}
 }
 
+func TestSearchCachesPerArea(t *testing.T) {
+	p := &fakeProvider{}
+	s := newService(p)
+	other := geo.BBox{West: 112.5, South: -7.5, East: 113, North: -7}
+	for _, a := range []geo.BBox{area, other, area} {
+		if _, err := s.Search(t.Context(), a, "grand mall", nil, 5); err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+	}
+	if n := p.calls(); n != 2 {
+		t.Errorf("provider calls = %d, want 2: one per area", n)
+	}
+	if got := p.queries[1].Area; got != other {
+		t.Errorf("second query area = %+v, want %+v", got, other)
+	}
+}
+
 func TestCacheEntriesExpire(t *testing.T) {
 	p := &fakeProvider{}
 	s := newService(p, func(c *places.Config) { c.CacheTTL = time.Millisecond })
 
 	for range 2 {
-		if _, err := s.Search(t.Context(), "grand mall", nil, 5); err != nil {
+		if _, err := s.Search(t.Context(), area, "grand mall", nil, 5); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -170,7 +185,7 @@ func TestCacheEvictsLeastRecentlyUsed(t *testing.T) {
 	s := newService(p, func(c *places.Config) { c.CacheSize = 2 })
 
 	for _, text := range []string{"aaa", "bbb", "aaa", "ccc", "aaa", "bbb"} {
-		if _, err := s.Search(t.Context(), text, nil, 5); err != nil {
+		if _, err := s.Search(t.Context(), area, text, nil, 5); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -190,7 +205,7 @@ func TestIdenticalSearchesShareOneCall(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 5 {
 		wg.Go(func() {
-			if _, err := s.Search(t.Context(), "grand mall", nil, 5); err != nil {
+			if _, err := s.Search(t.Context(), area, "grand mall", nil, 5); err != nil {
 				t.Errorf("Search: %v", err)
 			}
 		})
@@ -211,16 +226,16 @@ func TestRateLimitDeniesWithoutCallingUpstream(t *testing.T) {
 	p := &fakeProvider{}
 	s := newService(p, func(c *places.Config) { c.RequestsPerMinute = 1 })
 
-	if _, err := s.Search(t.Context(), "grand mall", nil, 5); err != nil {
+	if _, err := s.Search(t.Context(), area, "grand mall", nil, 5); err != nil {
 		t.Fatalf("first Search: %v", err)
 	}
-	if _, err := s.Search(t.Context(), "other place", nil, 5); !errors.Is(err, places.ErrRateLimited) {
+	if _, err := s.Search(t.Context(), area, "other place", nil, 5); !errors.Is(err, places.ErrRateLimited) {
 		t.Errorf("second Search err = %v, want ErrRateLimited", err)
 	}
 	if _, err := s.Reverse(t.Context(), geo.Point{Lat: -6.2, Lon: 106.8}); !errors.Is(err, places.ErrRateLimited) {
 		t.Errorf("Reverse err = %v, want ErrRateLimited", err)
 	}
-	if _, err := s.Search(t.Context(), "grand mall", nil, 5); err != nil {
+	if _, err := s.Search(t.Context(), area, "grand mall", nil, 5); err != nil {
 		t.Errorf("cached Search: %v, want a free cache hit", err)
 	}
 	if n := p.calls(); n != 1 {
@@ -232,11 +247,11 @@ func TestErrorsAreNotCached(t *testing.T) {
 	p := &fakeProvider{err: errors.New("unexpected status 502 Bad Gateway")}
 	s := newService(p)
 
-	if _, err := s.Search(t.Context(), "grand mall", nil, 5); err == nil {
+	if _, err := s.Search(t.Context(), area, "grand mall", nil, 5); err == nil {
 		t.Fatal("Search succeeded, want the upstream error")
 	}
 	p.err = nil
-	if _, err := s.Search(t.Context(), "grand mall", nil, 5); err != nil {
+	if _, err := s.Search(t.Context(), area, "grand mall", nil, 5); err != nil {
 		t.Fatalf("Search after recovery: %v", err)
 	}
 	if n := p.calls(); n != 2 {
@@ -249,7 +264,7 @@ func TestUpstreamCallsTimeOut(t *testing.T) {
 	defer close(p.release)
 	s := newService(p, func(c *places.Config) { c.Timeout = 10 * time.Millisecond })
 
-	if _, err := s.Search(t.Context(), "grand mall", nil, 5); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := s.Search(t.Context(), area, "grand mall", nil, 5); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v, want context.DeadlineExceeded", err)
 	}
 }

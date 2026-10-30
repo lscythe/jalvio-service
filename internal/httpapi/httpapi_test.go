@@ -100,13 +100,19 @@ func newHandler(ready bool) http.Handler {
 	return httpapi.New(deps(ready))
 }
 
+// regionPath is where the one test region's endpoints live.
+const regionPath = "/v1/regions/jakarta"
+
 func deps(ready bool) httpapi.Deps {
 	return httpapi.Deps{
-		Info:     httpapi.Info{Version: "1.2.3", StartedAt: startedAt},
-		Ready:    func() bool { return ready },
-		Catalogs: fakeCatalogs{},
-		Buses:    fleet.New(),
+		Info:    httpapi.Info{Version: "1.2.3", StartedAt: startedAt},
+		Ready:   func() bool { return ready },
+		Regions: []httpapi.Region{testRegion("jakarta")},
 	}
+}
+
+func testRegion(id string) httpapi.Region {
+	return httpapi.Region{ID: id, Name: "Region " + id, TimeZone: "Asia/Jakarta", Catalogs: fakeCatalogs{}, Buses: fleet.New()}
 }
 
 func serve(t *testing.T, h http.Handler, method, target string) *httptest.ResponseRecorder {
@@ -144,7 +150,7 @@ func TestHealthz(t *testing.T) {
 func TestStatus(t *testing.T) {
 	checked := startedAt.Add(time.Hour)
 	lastMessage := startedAt.Add(2 * time.Hour)
-	const prefix = `{"version":"1.2.3","startedAt":"2026-10-12T03:00:00Z",`
+	const prefix = `{"version":"1.2.3","startedAt":"2026-10-12T03:00:00Z","regions":[{"id":"jakarta",`
 	tests := []struct {
 		name    string
 		catalog catalog.Status
@@ -158,7 +164,7 @@ func TestStatus(t *testing.T) {
 			catalog: catalog.Status{Error: "fetch feed: timeout"},
 			want: prefix + `"catalog":{"error":"fetch feed: timeout"},` +
 				`"feed":{"state":"disabled","reconnects":0,"messages":0,"malformed":0,"buses":0,"filters":0,"wholeFleet":false},` +
-				`"stopFacilities":{"state":"disabled","requests":0,"matched":0,"unmatched":0}}`,
+				`"stopFacilities":{"state":"disabled","requests":0,"matched":0,"unmatched":0}}]}`,
 		},
 		{
 			name:    "catalog loaded and feed connected",
@@ -179,7 +185,7 @@ func TestStatus(t *testing.T) {
 				`"reconnects":2,"messages":1500,"malformed":3,` +
 				`"rejected":{"no_position":2,"payload":1},"buses":1412,"filters":42,"wholeFleet":true},` +
 				`"stopFacilities":{"state":"synced","syncedAt":"2026-10-12T03:00:00Z","checkedAt":"2026-10-12T04:00:00Z",` +
-				`"error":"matched 1 of 272 halte, below 95%","requests":6,"matched":1,"unmatched":271}}`,
+				`"error":"matched 1 of 272 halte, below 95%","requests":6,"matched":1,"unmatched":271}}]}`,
 		},
 		{
 			name:  "feed disconnected",
@@ -188,16 +194,17 @@ func TestStatus(t *testing.T) {
 			want: prefix + `"catalog":{},` +
 				`"feed":{"state":"disconnected","reconnects":1,"messages":0,"malformed":0,"buses":0,"filters":0,"wholeFleet":false},` +
 				`"stopFacilities":{"state":"pending","checkedAt":"2026-10-12T04:00:00Z","error":"catalog not loaded",` +
-				`"requests":0,"matched":0,"unmatched":0}}`,
+				`"requests":0,"matched":0,"unmatched":0}}]}`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := deps(true)
-			d.Catalogs = fakeCatalogs{status: tt.catalog}
-			d.Feed = tt.feed
-			d.StopInfo = tt.stops
-			d.Buses = countedBuses{fleet.New(), tt.buses}
+			r := &d.Regions[0]
+			r.Catalogs = fakeCatalogs{status: tt.catalog}
+			r.Feed = tt.feed
+			r.StopInfo = tt.stops
+			r.Buses = countedBuses{fleet.New(), tt.buses}
 			rec := serve(t, httpapi.New(d), http.MethodGet, "/v1/status")
 
 			if rec.Code != http.StatusOK {

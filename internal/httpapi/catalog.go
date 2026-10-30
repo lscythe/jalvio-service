@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lscythe/jalvio-service/internal/catalog"
 	"github.com/lscythe/jalvio-service/internal/stopinfo"
 )
 
@@ -28,6 +29,22 @@ func (d *catalogDocuments) serveCatalog(w http.ResponseWriter, r *http.Request) 
 		writeProblem(w, http.StatusServiceUnavailable)
 		return
 	}
+	key, build := d.catalogSource(c)
+	d.catalog.serve(w, r, key, build)
+}
+
+// etag is the ETag c is served with, alongside the current facilities.
+func (d *catalogDocuments) etag(c *catalog.Catalog) (string, error) {
+	key, build := d.catalogSource(c)
+	doc, err := d.catalog.get(key, build)
+	if err != nil {
+		return "", err
+	}
+	return doc.etag, nil
+}
+
+// catalogSource returns the cache key and builder for c with its facilities.
+func (d *catalogDocuments) catalogSource(c *catalog.Catalog) (string, func() any) {
 	var snap *stopinfo.Snapshot
 	if d.stopInfo != nil {
 		snap = d.stopInfo.Current()
@@ -36,7 +53,7 @@ func (d *catalogDocuments) serveCatalog(w http.ResponseWriter, r *http.Request) 
 	if snap != nil {
 		key += " " + snap.SyncedAt.Format(time.RFC3339Nano)
 	}
-	d.catalog.serve(w, r, key, func() any { return newCatalogResponse(c, snap) })
+	return key, func() any { return newCatalogResponse(c, snap) }
 }
 
 func (d *catalogDocuments) serveShapes(w http.ResponseWriter, r *http.Request) {

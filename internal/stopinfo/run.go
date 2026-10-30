@@ -8,10 +8,11 @@ import (
 // maxAge is how old a stored snapshot may be before startup syncs again.
 const maxAge = 24 * time.Hour
 
-// DailyAt returns the next hour:minute after now, in now's location.
-func DailyAt(hour, minute int) func(time.Time) time.Time {
+// DailyAt returns the next hour:minute after now, in loc.
+func DailyAt(hour, minute int, loc *time.Location) func(time.Time) time.Time {
 	return func(now time.Time) time.Time {
-		next := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+		now = now.In(loc)
+		next := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, loc)
 		if !next.After(now) {
 			next = next.AddDate(0, 0, 1)
 		}

@@ -18,6 +18,7 @@ var grandIndonesia = places.Place{
 }
 
 type searchCall struct {
+	area  geo.BBox
 	text  string
 	near  *geo.Point
 	limit int
@@ -29,9 +30,9 @@ type fakePlaces struct {
 	calls *[]searchCall
 }
 
-func (f fakePlaces) Search(_ context.Context, text string, near *geo.Point, limit int) ([]places.Place, error) {
+func (f fakePlaces) Search(_ context.Context, area geo.BBox, text string, near *geo.Point, limit int) ([]places.Place, error) {
 	if f.calls != nil {
-		*f.calls = append(*f.calls, searchCall{text, near, limit})
+		*f.calls = append(*f.calls, searchCall{area, text, near, limit})
 	}
 	if len(text) < 3 {
 		return nil, places.ErrQueryTooShort
@@ -58,7 +59,7 @@ func TestPlaces(t *testing.T) {
 	var calls []searchCall
 	h := placesHandler(fakePlaces{found: []places.Place{grandIndonesia, {Name: "Jalan Sudirman", Position: geo.Point{Lat: -6.21, Lon: 106.82}}}, calls: &calls})
 
-	rec := get(t, h, "/v1/places?q=grand+indo&near=-6.2,106.83&limit=5", nil)
+	rec := get(t, h, regionPath+"/places?q=grand+indo&near=-6.2,106.83&limit=5", nil)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -75,7 +76,7 @@ func TestPlaces(t *testing.T) {
 
 func TestPlacesDefaults(t *testing.T) {
 	var calls []searchCall
-	rec := get(t, placesHandler(fakePlaces{calls: &calls}), "/v1/places?q=monas", nil)
+	rec := get(t, placesHandler(fakePlaces{calls: &calls}), regionPath+"/places?q=monas", nil)
 
 	if got, want := strings.TrimSpace(rec.Body.String()), `{"attribution":"© OpenStreetMap contributors","places":[]}`; got != want {
 		t.Errorf("body = %s, want %s", got, want)
@@ -85,8 +86,28 @@ func TestPlacesDefaults(t *testing.T) {
 	}
 }
 
+func TestPlacesSearchUsesTheCatalogArea(t *testing.T) {
+	var calls []searchCall
+	c := fixtureCatalog(t)
+	d := deps(true)
+	d.Regions[0].Catalogs = fakeCatalogs{current: c}
+	d.Places = fakePlaces{calls: &calls}
+	get(t, httpapi.New(d), regionPath+"/places?q=monas", nil)
+	if want := c.Bounds().Pad(0.1); len(calls) != 1 || calls[0].area != want {
+		t.Errorf("search calls = %+v, want one in %+v", calls, want)
+	}
+}
+
+func TestPlacesSearchBeforeTheCatalogLoads(t *testing.T) {
+	var calls []searchCall
+	get(t, placesHandler(fakePlaces{calls: &calls}), regionPath+"/places?q=monas", nil)
+	if len(calls) != 1 || calls[0].area != (geo.BBox{}) {
+		t.Errorf("search calls = %+v, want one without an area", calls)
+	}
+}
+
 func TestReversePlace(t *testing.T) {
-	rec := get(t, placesHandler(fakePlaces{found: []places.Place{grandIndonesia}}), "/v1/places/reverse?at=-6.195,106.82", nil)
+	rec := get(t, placesHandler(fakePlaces{found: []places.Place{grandIndonesia}}), regionPath+"/places/reverse?at=-6.195,106.82", nil)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -106,22 +127,22 @@ func TestPlacesProblems(t *testing.T) {
 		wantStatus int
 		wantDetail string
 	}{
-		{"disabled search", nil, "/v1/places?q=monas", http.StatusServiceUnavailable, "disabled"},
-		{"disabled reverse", nil, "/v1/places/reverse?at=-6.2,106.8", http.StatusServiceUnavailable, "disabled"},
-		{"no query", fakePlaces{}, "/v1/places", http.StatusBadRequest, "q"},
-		{"short query", fakePlaces{}, "/v1/places?q=ab", http.StatusBadRequest, "q"},
-		{"bad near", fakePlaces{}, "/v1/places?q=monas&near=-6.2", http.StatusBadRequest, "near"},
-		{"near out of range", fakePlaces{}, "/v1/places?q=monas&near=-96.2,106.8", http.StatusBadRequest, "near"},
-		{"bad limit", fakePlaces{}, "/v1/places?q=monas&limit=many", http.StatusBadRequest, "limit"},
-		{"limit too large", fakePlaces{}, "/v1/places?q=monas&limit=21", http.StatusBadRequest, "limit"},
-		{"zero limit", fakePlaces{}, "/v1/places?q=monas&limit=0", http.StatusBadRequest, "limit"},
-		{"no point", fakePlaces{}, "/v1/places/reverse", http.StatusBadRequest, "at"},
-		{"bad point", fakePlaces{}, "/v1/places/reverse?at=north,east", http.StatusBadRequest, "at"},
-		{"search rate limited", fakePlaces{err: places.ErrRateLimited}, "/v1/places?q=monas", http.StatusTooManyRequests, ""},
-		{"reverse rate limited", fakePlaces{err: places.ErrRateLimited}, "/v1/places/reverse?at=-6.2,106.8", http.StatusTooManyRequests, ""},
-		{"search upstream failure", fakePlaces{err: upstream}, "/v1/places?q=monas", http.StatusBadGateway, ""},
-		{"reverse upstream failure", fakePlaces{err: upstream}, "/v1/places/reverse?at=-6.2,106.8", http.StatusBadGateway, ""},
-		{"nothing there", fakePlaces{err: places.ErrNotFound}, "/v1/places/reverse?at=-6.2,106.8", http.StatusNotFound, ""},
+		{"disabled search", nil, regionPath + "/places?q=monas", http.StatusServiceUnavailable, "disabled"},
+		{"disabled reverse", nil, regionPath + "/places/reverse?at=-6.2,106.8", http.StatusServiceUnavailable, "disabled"},
+		{"no query", fakePlaces{}, regionPath + "/places", http.StatusBadRequest, "q"},
+		{"short query", fakePlaces{}, regionPath + "/places?q=ab", http.StatusBadRequest, "q"},
+		{"bad near", fakePlaces{}, regionPath + "/places?q=monas&near=-6.2", http.StatusBadRequest, "near"},
+		{"near out of range", fakePlaces{}, regionPath + "/places?q=monas&near=-96.2,106.8", http.StatusBadRequest, "near"},
+		{"bad limit", fakePlaces{}, regionPath + "/places?q=monas&limit=many", http.StatusBadRequest, "limit"},
+		{"limit too large", fakePlaces{}, regionPath + "/places?q=monas&limit=21", http.StatusBadRequest, "limit"},
+		{"zero limit", fakePlaces{}, regionPath + "/places?q=monas&limit=0", http.StatusBadRequest, "limit"},
+		{"no point", fakePlaces{}, regionPath + "/places/reverse", http.StatusBadRequest, "at"},
+		{"bad point", fakePlaces{}, regionPath + "/places/reverse?at=north,east", http.StatusBadRequest, "at"},
+		{"search rate limited", fakePlaces{err: places.ErrRateLimited}, regionPath + "/places?q=monas", http.StatusTooManyRequests, ""},
+		{"reverse rate limited", fakePlaces{err: places.ErrRateLimited}, regionPath + "/places/reverse?at=-6.2,106.8", http.StatusTooManyRequests, ""},
+		{"search upstream failure", fakePlaces{err: upstream}, regionPath + "/places?q=monas", http.StatusBadGateway, ""},
+		{"reverse upstream failure", fakePlaces{err: upstream}, regionPath + "/places/reverse?at=-6.2,106.8", http.StatusBadGateway, ""},
+		{"nothing there", fakePlaces{err: places.ErrNotFound}, regionPath + "/places/reverse?at=-6.2,106.8", http.StatusNotFound, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

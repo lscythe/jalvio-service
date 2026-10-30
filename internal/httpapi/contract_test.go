@@ -43,7 +43,7 @@ func TestContractIsValid(t *testing.T) {
 }
 
 func TestContractChecksTemplatedPaths(t *testing.T) {
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/buses/TST-001", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, regionPath+"/buses/TST-001", nil)
 	rec := httptest.NewRecorder()
 	rec.Header().Set("Content-Type", "application/json")
 	rec.WriteHeader(http.StatusOK)
@@ -69,7 +69,7 @@ func contractError(ctx context.Context, req *http.Request, rec *httptest.Respons
 	if err != nil {
 		return fmt.Errorf("api/openapi.yaml: %w", err)
 	}
-	// The router resolves templated paths such as /v1/buses/{fleetNumber}.
+	// The router resolves templated paths such as /v1/regions/{region}/buses/{fleetNumber}.
 	route, pathParams, err := c.router.FindRoute(req)
 	if routeErr := (*routers.RouteError)(nil); errors.As(err, &routeErr) {
 		return nil

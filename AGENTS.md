@@ -1,12 +1,13 @@
 # Agent Guidelines
 
-jalvio-service is a self-hosted Go backend that serves public transit data to the Jalvio app. One process loads the static GTFS feed, follows live bus positions from an MQTT broker, syncs stop facilities from the stop API once a day, and serves anonymous JSON over HTTP.
+jalvio-service is a self-hosted Go backend that serves public transit data to the Jalvio app. One process serves every region in the owner's regions file: for each it loads the static GTFS feed, follows live bus positions from an MQTT broker, and syncs stop facilities from the stop API once a day. It serves anonymous JSON over HTTP.
 
 ## Layout
 
 - `cmd/jalvio`: the service entry point and the `healthcheck` subcommand.
 - `cmd/covergate`: the per-package test and coverage gate.
 - `internal/config`: environment configuration.
+- `internal/regions`: the regions file, with each region's upstreams.
 - `internal/catalog`: the static GTFS catalog (routes, stops, trips) and search.
 - `internal/mqttfeed`, `internal/fleet`: the live feed and the in-memory fleet built from it.
 - `internal/stopapi`, `internal/stopinfo`: the stop API client and the daily facilities sync.
@@ -21,7 +22,7 @@ jalvio-service is a self-hosted Go backend that serves public transit data to th
 - `lefthook install`: set up the pre-commit and commit-msg hooks.
 - `mise run fmt`: format with gofumpt.
 - `mise run check`: formatting, lint, race-enabled tests, coverage gate, and vulnerability scan. CI runs the same.
-- `mise run live`: check the real upstreams named in the environment. Run it only when explicitly asked.
+- `mise run live`: check the real upstreams named in the regions file and environment. Run it only when explicitly asked.
 
 ## Working style
 
@@ -38,7 +39,8 @@ jalvio-service is a self-hosted Go backend that serves public transit data to th
 - Pass dependencies through constructors. No global state, no post-construction setters.
 - Handle every error; wrap with context where it helps the caller.
 - Match the existing formatting, naming, and package boundaries.
-- Configuration comes from environment variables. A new variable is added to `internal/config`, the README table, and `.env.example` in the same change.
+- Instance-wide configuration comes from environment variables. A new variable is added to `internal/config`, the README table, and `.env.example` in the same change.
+- Per-region upstreams come from the regions file. A new field is added to `internal/regions`, the README field table, and `regions.example.json` in the same change.
 
 ## Public API
 
@@ -58,7 +60,7 @@ jalvio-service is a self-hosted Go backend that serves public transit data to th
 ## Security
 
 - Never commit secrets, tokens, credentials, or real environment files.
-- Never commit real upstream endpoints (broker, API, or feed URLs and hostnames), not even as defaults, in tests, or in docs. They come from the environment; tests use reserved names such as `example.com` and `.invalid`.
+- Never commit real upstream endpoints (broker, API, or feed URLs and hostnames), not even as defaults, in tests, or in docs. They come from the owner's regions file and environment; tests use reserved names such as `example.com` and `.invalid`.
 - Refer to upstream services generically (the broker, the static feed, the stop API). Don't name the operator in code, docs, commit messages, or pull requests.
 - Never log credentials or raw upstream payloads.
 

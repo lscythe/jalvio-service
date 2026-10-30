@@ -71,8 +71,8 @@ func quietFleet() *fleet.Fleet {
 func liveDeps(t *testing.T, buses httpapi.Buses) httpapi.Deps {
 	t.Helper()
 	d := deps(true)
-	d.Catalogs = fakeCatalogs{status: catalog.Status{Version: "feed-1"}, current: fixtureCatalog(t)}
-	d.Buses = buses
+	d.Regions[0].Catalogs = fakeCatalogs{status: catalog.Status{Version: "feed-1"}, current: fixtureCatalog(t)}
+	d.Regions[0].Buses = buses
 	d.Live = httpapi.LiveConfig{MaxConnections: 10}
 	return d
 }
@@ -81,7 +81,7 @@ func startLive(t *testing.T, d httpapi.Deps) string {
 	t.Helper()
 	srv := httptest.NewServer(httpapi.New(d))
 	t.Cleanup(srv.Close)
-	return "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/live"
+	return "ws" + strings.TrimPrefix(srv.URL, "http") + regionPath + "/live"
 }
 
 func dialLive(t *testing.T, url string, header http.Header) (*websocket.Conn, error) {
@@ -218,7 +218,7 @@ func onlyHold(t *testing.T, demand *recordingDemand) (string, mqttfeed.Interest)
 func TestLiveHoldsAndReleases(t *testing.T) {
 	d := liveDeps(t, quietFleet())
 	demand := newRecordingDemand()
-	d.Demand = demand
+	d.Regions[0].Demand = demand
 	conn := mustDialLive(t, startLive(t, d))
 	readFrame(t, conn)
 
@@ -244,7 +244,7 @@ func TestLiveHoldsAndReleases(t *testing.T) {
 func TestLiveSessionsUseDistinctKeys(t *testing.T) {
 	d := liveDeps(t, quietFleet())
 	demand := newRecordingDemand()
-	d.Demand = demand
+	d.Regions[0].Demand = demand
 	url := startLive(t, d)
 	for range 2 {
 		conn := mustDialLive(t, url)
@@ -332,7 +332,7 @@ func (f *switchingFeed) Status() mqttfeed.Status {
 func TestLiveReportsFeedChanges(t *testing.T) {
 	feed := &switchingFeed{}
 	d := liveDeps(t, quietFleet())
-	d.Feed = feed
+	d.Regions[0].Feed = feed
 	conn := mustDialLive(t, startLive(t, d))
 
 	if got, want := string(readFrame(t, conn)), `{"type":"status","feed":"disconnected","catalogVersion":"feed-1"}`; got != want {
@@ -454,9 +454,9 @@ func TestLiveRejectsPlainRequests(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			d := liveDeps(t, quietFleet())
 			if tt.catalogs != nil {
-				d.Catalogs = tt.catalogs
+				d.Regions[0].Catalogs = tt.catalogs
 			}
-			rec := get(t, httpapi.New(d), "/v1/live", tt.header)
+			rec := get(t, httpapi.New(d), regionPath+"/live", tt.header)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}
