@@ -93,10 +93,16 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Account, erro
 		return Account{}, ErrUnauthenticated
 	}
 	acc, err := s.store.SessionAccount(ctx, hash, s.clock())
+	return acc, unauthenticatedIfGone(err)
+}
+
+// unauthenticatedIfGone reports a session or account that disappeared, by
+// sign-out, merge or deletion, as an unauthenticated request.
+func unauthenticatedIfGone(err error) error {
 	if errors.Is(err, ErrNoSession) {
-		return Account{}, ErrUnauthenticated
+		return ErrUnauthenticated
 	}
-	return acc, err
+	return err
 }
 
 // SignInWithGoogle links acc to the Google account behind idToken, or merges
@@ -128,7 +134,10 @@ func (s *Service) SignInWithGoogle(ctx context.Context, acc Account, token, idTo
 	}
 	err = s.store.LinkGoogle(ctx, acc.ID, sub, s.clock())
 	if !errors.Is(err, ErrGoogleTaken) {
-		return token, err
+		if err != nil {
+			return "", unauthenticatedIfGone(err)
+		}
+		return token, nil
 	}
 	// Another phone linked the same Google account first.
 	owner, found, err = s.store.AccountByGoogle(ctx, sub)
@@ -147,7 +156,7 @@ func (s *Service) merge(ctx context.Context, from, into Account) (string, error)
 		return "", err
 	}
 	if err := s.store.Merge(ctx, from.ID, into.ID, hash, s.clock()); err != nil {
-		return "", err
+		return "", unauthenticatedIfGone(err)
 	}
 	return token, nil
 }
@@ -159,7 +168,7 @@ func (s *Service) UpdateProfile(ctx context.Context, acc Account, u ProfileUpdat
 	}
 	updated, err := s.store.UpdateProfile(ctx, acc.ID, u, s.clock())
 	if err != nil {
-		return Profile{}, err
+		return Profile{}, unauthenticatedIfGone(err)
 	}
 	return updated.Profile(), nil
 }

@@ -76,7 +76,11 @@ func (s *fakeStore) LinkGoogle(_ context.Context, accountID, sub string, _ time.
 			return accounts.ErrGoogleTaken
 		}
 	}
-	s.accounts[accountID].GoogleSub = sub
+	acc, ok := s.accounts[accountID]
+	if !ok {
+		return accounts.ErrNoSession
+	}
+	acc.GoogleSub = sub
 	return nil
 }
 
@@ -84,6 +88,9 @@ func (s *fakeStore) Merge(_ context.Context, fromID, intoID string, tokenHash []
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	from, into := s.accounts[fromID], s.accounts[intoID]
+	if from == nil || into == nil {
+		return accounts.ErrNoSession
+	}
 	if into.DisplayName == nil {
 		into.DisplayName = from.DisplayName
 	}
@@ -98,7 +105,10 @@ func (s *fakeStore) Merge(_ context.Context, fromID, intoID string, tokenHash []
 func (s *fakeStore) UpdateProfile(_ context.Context, accountID string, u accounts.ProfileUpdate, _ time.Time) (accounts.Account, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	acc := s.accounts[accountID]
+	acc, ok := s.accounts[accountID]
+	if !ok {
+		return accounts.Account{}, accounts.ErrNoSession
+	}
 	if u.DisplayName.Set {
 		acc.DisplayName = u.DisplayName.Value
 	}

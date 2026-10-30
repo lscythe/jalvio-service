@@ -16,5 +16,24 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
 
+  community-db:
+    profiles: [community]
+    image: postgres:17@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f
+    environment:
+      POSTGRES_USER: community
+      POSTGRES_PASSWORD: community
+      POSTGRES_DB: community
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - community-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "community", "-d", "community"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    restart: unless-stopped
+
 volumes:
   jalvio-data:
+  community-db-data:

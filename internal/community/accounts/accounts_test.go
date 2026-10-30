@@ -255,6 +255,25 @@ func TestDeleteEndsEverySession(t *testing.T) {
 	}
 }
 
+func TestAnAccountDeletedMidRequestIsUnauthenticated(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(newFakeStore())
+	token, acc := device(t, svc)
+	_, b := linked(t, svc, "id-b")
+	if err := svc.Delete(ctx, acc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateProfile(ctx, acc, setName("Rina")); !errors.Is(err, accounts.ErrUnauthenticated) {
+		t.Errorf("UpdateProfile = %v, want ErrUnauthenticated", err)
+	}
+	if _, err := svc.SignInWithGoogle(ctx, acc, token, "id-a"); !errors.Is(err, accounts.ErrUnauthenticated) {
+		t.Errorf("link = %v, want ErrUnauthenticated", err)
+	}
+	if _, err := svc.SignInWithGoogle(ctx, acc, token, "id-b"); !errors.Is(err, accounts.ErrUnauthenticated) {
+		t.Errorf("merge into %s = %v, want ErrUnauthenticated", b.ID, err)
+	}
+}
+
 func TestRetentionDeletesIdleDeviceAccounts(t *testing.T) {
 	store := newFakeStore()
 	store.idleSince = make(chan time.Time)
