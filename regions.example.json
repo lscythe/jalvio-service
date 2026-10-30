@@ -1,0 +1,13 @@
+{
+  "regions": [
+    {
+      "id": "jakarta",
+      "name": "Jakarta",
+      "timeZone": "Asia/Jakarta",
+      "gtfs": {"url": "https://gtfs.example.com/feed.zip", "refresh": "24h"},
+      "live": {"mqttUrl": "wss://broker.example.com/mqtt", "tlsServerName": "", "dialAddress": "", "clientIdPrefix": "jalvio-"},
+      "stopFacilities": {"url": "https://stops.example.com/v1", "appVersion": "1.0.0", "syncAt": "03:00"},
+      "map": {"url": "https://maps.example.com/jakarta.pmtiles", "bytes": 142000000, "updated": "2026-10-30"}
+    }
+  ]
+}
