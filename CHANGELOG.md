@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/lscythe/jalvio-service/compare/v0.6.0...v0.7.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* the service reads its regions from a required regions file (`REGIONS_FILE`). `GTFS_URL`, `GTFS_REFRESH`, `MQTT_URL`, `MQTT_TLS_SERVER_NAME`, `MQTT_DIAL_ADDRESS`, `MQTT_CLIENT_ID_PREFIX`, `STOP_API_URL`, `STOP_API_APP_VERSION` and `STOPINFO_SYNC_AT` are removed, and `TZ` no longer sets the sync time. `/v1/catalog`, `/v1/catalog/shapes`, `/v1/departures`, `/v1/buses`, `/v1/buses/{fleetNumber}`, `/v1/live`, `/v1/places` and `/v1/places/reverse` moved under `/v1/regions/{region}/`.
+
+### Features
+
+* serve several regions from one instance ([#48](https://github.com/lscythe/jalvio-service/issues/48)) ([8b6c535](https://github.com/lscythe/jalvio-service/commit/8b6c5351b068ff6d5a9f37370b38d7f87fda1b12))
+
 ## [0.6.0](https://github.com/lscythe/jalvio-service/compare/v0.5.0...v0.6.0) (2026-10-29)
 
 
